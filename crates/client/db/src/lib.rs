@@ -14,7 +14,6 @@ use db_metrics::DbMetrics;
 use rocksdb::backup::{BackupEngine, BackupEngineOptions};
 
 pub mod block_db;
-mod codec;
 mod error;
 use rocksdb::{
     BoundColumnFamily, ColumnFamilyDescriptor, DBCompressionType, DBWithThreadMode, Env, FlushOptions, MultiThreaded,
@@ -38,12 +37,7 @@ pub type WriteBatchWithTransaction = rocksdb::WriteBatchWithTransaction<false>;
 
 const DB_UPDATES_BATCH_SIZE: usize = 1024;
 
-pub(crate) async fn open_rocksdb(
-    path: &Path,
-    create: bool,
-    backup_dir: Option<PathBuf>,
-    restore_from_latest_backup: bool,
-) -> Result<(Arc<DB>, Option<mpsc::Sender<BackupRequest>>)> {
+pub fn open_rocksdb(path: &Path, create: bool) -> Result<Arc<DB>> {
     let mut opts = Options::default();
     opts.set_report_bg_io_stats(true);
     opts.set_use_fsync(false);
@@ -66,25 +60,6 @@ pub(crate) async fn open_rocksdb(
 
     opts.set_env(&env);
 
-    let backup_hande = if let Some(backup_dir) = backup_dir {
-        let (restored_cb_sender, restored_cb_recv) = oneshot::channel();
-
-        let (sender, receiver) = mpsc::channel(1);
-        let db_path = path.to_owned();
-        std::thread::spawn(move || {
-            spawn_backup_db_task(&backup_dir, restore_from_latest_backup, &db_path, restored_cb_sender, receiver)
-                .expect("Database backup thread")
-        });
-
-        log::debug!("blocking on db restoration");
-        restored_cb_recv.await.context("Restoring database")?;
-        log::debug!("done blocking on db restoration");
-
-        Some(sender)
-    } else {
-        None
-    };
-
     log::debug!("opening db at {:?}", path.display());
     let db = DB::open_cf_descriptors(
         &opts,
@@ -92,7 +67,7 @@ pub(crate) async fn open_rocksdb(
         Column::ALL.iter().map(|col| ColumnFamilyDescriptor::new(col.rocksdb_name(), col.rocksdb_options())),
     )?;
 
-    Ok((Arc::new(db), backup_hande))
+    Ok(Arc::new(db))
 }
 
 /// This runs in anothr thread as the backup engine is not thread safe
@@ -318,6 +293,8 @@ pub struct DeoxysBackend {
     backup_handle: Option<mpsc::Sender<BackupRequest>>,
     db: Arc<DB>,
     last_flush_time: Mutex<Option<Instant>>,
+    #[cfg(feature = "testing")]
+    _temp_dir: Option<tempfile::TempDir>,
 }
 
 pub struct DatabaseService {
@@ -329,12 +306,12 @@ impl DatabaseService {
         base_path: &Path,
         backup_dir: Option<PathBuf>,
         restore_from_latest_backup: bool,
-        chain_info: &ChainInfo,
+        chain_config: &ChainInfo,
     ) -> anyhow::Result<Self> {
         log::info!("💾 Opening database at: {}", base_path.display());
 
         let handle =
-            DeoxysBackend::open(base_path.to_owned(), backup_dir.clone(), restore_from_latest_backup, chain_info)
+            DeoxysBackend::open(base_path.to_owned(), backup_dir.clone(), restore_from_latest_backup, chain_config)
                 .await?;
 
         Ok(Self { handle })
@@ -357,19 +334,55 @@ impl Drop for DeoxysBackend {
 }
 
 impl DeoxysBackend {
+    #[cfg(feature = "testing")]
+    pub fn open_for_testing(_chain_config: Arc<ChainInfo>) -> Arc<DeoxysBackend> {
+        let temp_dir = tempfile::TempDir::with_prefix("madara-test").unwrap();
+        Arc::new(Self {
+            backup_handle: None,
+            db: open_rocksdb(temp_dir.as_ref(), true).unwrap(),
+            last_flush_time: Default::default(),
+            _temp_dir: Some(temp_dir),
+        })
+    }
+
     /// Open the db.
-    async fn open(
+    pub async fn open(
         db_config_dir: PathBuf,
         backup_dir: Option<PathBuf>,
         restore_from_latest_backup: bool,
-        chain_info: &ChainInfo,
+        chain_config: &ChainInfo,
     ) -> Result<Arc<DeoxysBackend>> {
         let db_path = db_config_dir.join("db");
 
-        let (db, backup_handle) = open_rocksdb(&db_path, true, backup_dir, restore_from_latest_backup).await?;
+        let backup_handle = if let Some(backup_dir) = backup_dir {
+            let (restored_cb_sender, restored_cb_recv) = oneshot::channel();
 
-        let backend = Arc::new(Self { backup_handle, db, last_flush_time: Default::default() });
-        backend.assert_chain_info(chain_info)?;
+            let (sender, receiver) = mpsc::channel(1);
+            let db_path = db_path.clone();
+            std::thread::spawn(move || {
+                spawn_backup_db_task(&backup_dir, restore_from_latest_backup, &db_path, restored_cb_sender, receiver)
+                    .expect("Database backup thread")
+            });
+
+            log::debug!("blocking on db restoration");
+            restored_cb_recv.await.context("Restoring database")?;
+            log::debug!("done blocking on db restoration");
+
+            Some(sender)
+        } else {
+            None
+        };
+
+        let db = open_rocksdb(&db_path, true)?;
+
+        let backend = Arc::new(Self {
+            backup_handle,
+            db,
+            last_flush_time: Default::default(),
+            #[cfg(feature = "testing")]
+            _temp_dir: None,
+        });
+        backend.assert_chain_info(&chain_config)?;
         Ok(backend)
     }
 
