@@ -50,7 +50,7 @@ async fn l2_verify_and_apply_task(
     mut updates_receiver: mpsc::Receiver<PreValidatedBlock>,
     block_import: Arc<BlockImporter>,
     validation: Validation,
-    verify: bool, // TODO(merge): re-add verify false
+    #[allow(unused)] verify: bool, // TODO(merge): re-add verify false
     backup_every_n_blocks: Option<u64>,
     block_metrics: BlockMetrics,
     db_metrics: DbMetrics,

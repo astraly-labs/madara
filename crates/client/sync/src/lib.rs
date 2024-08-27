@@ -8,10 +8,11 @@ pub mod utils;
 use crate::metrics::block_metrics::BlockMetrics;
 use anyhow::Context;
 use dc_db::{db_metrics::DbMetrics, DeoxysBackend};
-use dc_eth::client::EthereumClient;
 use dc_telemetry::TelemetryHandle;
 use dp_convert::ToFelt;
 use fetch::fetchers::FetchConfig;
+use starknet_providers::SequencerGatewayProvider;
+use std::{sync::Arc, time::Duration};
 
 use starknet_providers::SequencerGatewayProvider;
 use std::{sync::Arc, time::Duration};
@@ -45,10 +46,6 @@ pub async fn sync(
         fetch_config.feeder_gateway.clone(),
         fetch_config.chain_id.to_felt(),
     );
-    let provider = match &fetch_config.api_key {
-        Some(api_key) => provider.with_header("X-Throttling-Bypass".to_string(), api_key.clone()),
-        None => provider,
-    };
 
     let l1_fut = async {
         if let Some(eth_client) = eth_client {
