@@ -14,14 +14,10 @@ use fetch::fetchers::FetchConfig;
 use starknet_providers::SequencerGatewayProvider;
 use std::{sync::Arc, time::Duration};
 
-use starknet_providers::SequencerGatewayProvider;
-use std::{sync::Arc, time::Duration};
-
 #[allow(clippy::too_many_arguments)]
 pub async fn sync(
     backend: &Arc<DeoxysBackend>,
     fetch_config: FetchConfig,
-    eth_client: Option<EthereumClient>,
     starting_block: Option<u64>,
     backup_every_n_blocks: Option<u64>,
     block_metrics: BlockMetrics,
@@ -47,34 +43,24 @@ pub async fn sync(
         fetch_config.chain_id.to_felt(),
     );
 
-    let l1_fut = async {
-        if let Some(eth_client) = eth_client {
-            dc_eth::state_update::sync(backend, &eth_client, fetch_config.chain_id.to_felt()).await
-        } else {
-            Ok(())
-        }
-    };
-
-    tokio::try_join!(
-        l1_fut,
-        l2::sync(
-            backend,
-            provider,
-            L2SyncConfig {
-                first_block: starting_block,
-                n_blocks_to_sync: fetch_config.n_blocks_to_sync,
-                verify: fetch_config.verify,
-                sync_polling_interval: fetch_config.sync_polling_interval,
-                backup_every_n_blocks,
-                pending_block_poll_interval,
-            },
-            block_metrics,
-            db_metrics,
-            starting_block,
-            fetch_config.chain_id.clone(),
-            telemetry,
-        ),
-    )?;
+    // TODO: remove try join from here since there is only one service here
+    tokio::try_join!(l2::sync(
+        backend,
+        provider,
+        L2SyncConfig {
+            first_block: starting_block,
+            n_blocks_to_sync: fetch_config.n_blocks_to_sync,
+            verify: fetch_config.verify,
+            sync_polling_interval: fetch_config.sync_polling_interval,
+            backup_every_n_blocks,
+            pending_block_poll_interval,
+        },
+        block_metrics,
+        db_metrics,
+        starting_block,
+        fetch_config.chain_id,
+        telemetry,
+    ),)?;
 
     Ok(())
 }
