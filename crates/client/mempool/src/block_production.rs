@@ -414,3 +414,69 @@ impl BlockProductionTask {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use mc_block_import::BlockImporter;
+    use mc_db::{db_block_id::DbBlockId, MadaraBackend};
+    use mp_utils::tests_common::set_workdir;
+    use rstest::rstest;
+    use tokio::test;
+
+    use crate::{block_production::BlockProductionTask, L1DataProvider, Mempool, MockL1DataProvider};
+
+    #[rstest]
+    #[tokio::test]
+    async fn test_block_production_task(_set_workdir: ()) {
+        let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
+        let chain_config = Arc::new(mp_chain_config::ChainConfig::starknet_mainnet().unwrap());
+        let backend = MadaraBackend::open(temp_dir.path().to_path_buf(), None, false, chain_config).await.expect("Failed to open backend");
+
+        let l1_data_provider: Arc<dyn L1DataProvider> = Arc::new(MockL1DataProvider::new());
+        let mempool = Arc::new(Mempool::new(backend.clone(), l1_data_provider.clone()));
+
+        let mut block_production = BlockProductionTask::new(
+            backend.clone(),
+            Arc::new(BlockImporter::new(backend.clone())),
+            mempool.clone(),
+            l1_data_provider.clone(),
+        ).expect("Échec de la création de la tâche de production de blocs");
+
+        let simulation_duration = std::time::Duration::from_secs(60);
+        let start_time = std::time::Instant::now();
+
+        while start_time.elapsed() < simulation_duration {
+            block_production.on_block_time().await.expect("Block production failed");
+
+            assert!(block_production.block_n() > 0, "Block number did not increase");
+
+            for _ in 0..backend.chain_config().n_pending_ticks_per_block() {
+                block_production.on_pending_time_tick().expect("Pending block update failed");
+            }
+
+            assert!(backend.get_block_info(&DbBlockId::Pending).unwrap().is_some(), "Le bloc en attente n'a pas été mis à jour");
+
+            tokio::time::sleep(backend.chain_config().block_time).await;
+        }
+
+        assert!(block_production.block_n() > 1, "Not enough blocks produced");
+    }
+
+    #[test]
+    async fn test_on_block_time() {
+        // TODO: Implémenter le test
+    }
+
+    #[test]
+    async fn test_on_pending_time_tick() {
+        // TODO: Implémenter le test
+    }
+
+    #[test]
+    async fn test_block_n() {
+        // TODO: Implémenter le test
+    }
+}
+

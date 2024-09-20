@@ -5740,6 +5740,7 @@ dependencies = [
  "starknet-core",
  "starknet-types-core",
  "starknet_api",
+ "tempfile",
  "thiserror",
  "tokio",
 ]
