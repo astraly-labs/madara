@@ -423,10 +423,22 @@ mod tests {
     use mc_db::{db_block_id::DbBlockId, MadaraBackend};
     use mp_utils::tests_common::set_workdir;
     use rstest::rstest;
-    use tokio::test;
 
     use crate::{block_production::BlockProductionTask, L1DataProvider, Mempool, MockL1DataProvider};
 
+    /// Test the block production task
+    ///
+    /// Steps:
+    /// 1. Create a temporary directory and initialize the backend
+    /// 2. Set up the L1 data provider and mempool
+    /// 3. Create a block production task
+    /// 4. Simulate block production for a defined duration:
+    ///    a. Trigger block production
+    ///    b. Verify block number increase
+    ///    c. Simulate pending block update ticks
+    ///    d. Verify pending block update
+    ///    e. Wait for the configured block time
+    /// 5. Verify that multiple blocks have been produced
     #[rstest]
     #[tokio::test]
     async fn test_block_production_task(_set_workdir: ()) {
@@ -442,9 +454,9 @@ mod tests {
             Arc::new(BlockImporter::new(backend.clone())),
             mempool.clone(),
             l1_data_provider.clone(),
-        ).expect("Échec de la création de la tâche de production de blocs");
+        ).expect("Failed to create block production task");
 
-        let simulation_duration = std::time::Duration::from_secs(60);
+        let simulation_duration = std::time::Duration::from_secs(360);
         let start_time = std::time::Instant::now();
 
         while start_time.elapsed() < simulation_duration {
@@ -456,7 +468,7 @@ mod tests {
                 block_production.on_pending_time_tick().expect("Pending block update failed");
             }
 
-            assert!(backend.get_block_info(&DbBlockId::Pending).unwrap().is_some(), "Le bloc en attente n'a pas été mis à jour");
+            assert!(backend.get_block_info(&DbBlockId::Pending).unwrap().is_some(), "Pending block was not updated");
 
             tokio::time::sleep(backend.chain_config().block_time).await;
         }
@@ -464,19 +476,91 @@ mod tests {
         assert!(block_production.block_n() > 1, "Not enough blocks produced");
     }
 
-    #[test]
-    async fn test_on_block_time() {
-        // TODO: Implémenter le test
+    /// Test the on_block_time function
+    ///
+    /// Steps:
+    /// 1. Create a temporary directory and initialize the backend
+    /// 2. Set up the L1 data provider and mempool
+    /// 3. Create a block production task
+    /// 4. Trigger the on_block_time function
+    /// 5. Verify that the block number has increased
+    #[rstest]
+    #[tokio::test]
+    async fn test_on_block_time(_set_workdir: ()) {
+        let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
+        let chain_config = Arc::new(mp_chain_config::ChainConfig::starknet_mainnet().unwrap());
+        let backend = MadaraBackend::open(temp_dir.path().to_path_buf(), None, false, chain_config).await.expect("Failed to open backend");
+
+        let l1_data_provider: Arc<dyn L1DataProvider> = Arc::new(MockL1DataProvider::new());
+        let mempool = Arc::new(Mempool::new(backend.clone(), l1_data_provider.clone()));
+
+        let mut block_production = BlockProductionTask::new(
+            backend.clone(),
+            Arc::new(BlockImporter::new(backend.clone())),
+            mempool.clone(),
+            l1_data_provider.clone(),
+        ).expect("Failed to create block production task");
+
+        block_production.on_block_time().await.expect("Block production failed");
+
+        assert!(block_production.block_n() > 0, "Block number did not increase");
     }
 
-    #[test]
-    async fn test_on_pending_time_tick() {
-        // TODO: Implémenter le test
+    /// Test the on_pending_time_tick function
+    ///
+    /// Steps:
+    /// 1. Create a temporary directory and initialize the backend
+    /// 2. Set up the L1 data provider and mempool
+    /// 3. Create a block production task
+    /// 4. Trigger the on_pending_time_tick function
+    /// 5. Verify that the pending block has been updated
+    #[rstest]
+    #[tokio::test]
+    async fn test_on_pending_time_tick(_set_workdir: ()) {
+        let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
+        let chain_config = Arc::new(mp_chain_config::ChainConfig::starknet_mainnet().unwrap());
+        let backend = MadaraBackend::open(temp_dir.path().to_path_buf(), None, false, chain_config).await.expect("Failed to open backend");
+
+        let l1_data_provider: Arc<dyn L1DataProvider> = Arc::new(MockL1DataProvider::new());
+        let mempool = Arc::new(Mempool::new(backend.clone(), l1_data_provider.clone()));
+
+        let mut block_production = BlockProductionTask::new(
+            backend.clone(),
+            Arc::new(BlockImporter::new(backend.clone())),
+            mempool.clone(),
+            l1_data_provider.clone(),
+        ).expect("Failed to create block production task");
+
+        block_production.on_pending_time_tick().expect("Pending block update failed");
+
+        assert!(backend.get_block_info(&DbBlockId::Pending).unwrap().is_some(), "Pending block was not updated");
     }
 
-    #[test]
-    async fn test_block_n() {
-        // TODO: Implémenter le test
+    /// Test the block_n function
+    ///
+    /// Steps:
+    /// 1. Create a temporary directory and initialize the backend
+    /// 2. Set up the L1 data provider and mempool
+    /// 3. Create a block production task
+    /// 4. Verify the initial block number
+    #[rstest]
+    #[tokio::test]
+    async fn test_block_n(_set_workdir: ()) {
+        let temp_dir = tempfile::tempdir().expect("Failed to create temporary directory");
+        let chain_config = Arc::new(mp_chain_config::ChainConfig::starknet_mainnet().unwrap());
+        let backend = MadaraBackend::open(temp_dir.path().to_path_buf(), None, false, chain_config).await.expect("Failed to open backend");
+
+        let l1_data_provider: Arc<dyn L1DataProvider> = Arc::new(MockL1DataProvider::new());
+        let mempool = Arc::new(Mempool::new(backend.clone(), l1_data_provider.clone()));
+
+        let block_production = BlockProductionTask::new(
+            backend.clone(),
+            Arc::new(BlockImporter::new(backend.clone())),
+            mempool.clone(),
+            l1_data_provider.clone(),
+        ).expect("Failed to create block production task");
+
+        assert_eq!(block_production.block_n(), 0, "Initial block number is not zero");
     }
 }
 
