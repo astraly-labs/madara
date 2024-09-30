@@ -3,21 +3,24 @@
 #![warn(clippy::unwrap_used)]
 
 mod cli;
+mod extensions;
 mod service;
 mod util;
 
-use std::sync::Arc;
-
 use anyhow::Context;
 use clap::Parser;
+use extensions::madara_exexs;
 use mc_block_import::BlockImporter;
+use std::sync::Arc;
 
 use mc_db::DatabaseService;
 use mc_mempool::{GasPriceProvider, L1DataProvider, Mempool};
 use mc_metrics::MetricsService;
 use mc_rpc::providers::{AddTransactionProvider, ForwardToProvider, MempoolAddTxProvider};
 use mc_telemetry::{SysInfo, TelemetryService};
+use mp_block::Header;
 use mp_convert::ToFelt;
+use mp_exex::ExExLauncher;
 use mp_utils::service::{Service, ServiceGroup};
 
 use starknet_providers::SequencerGatewayProvider;
@@ -115,6 +118,9 @@ async fn main() -> anyhow::Result<()> {
     .await
     .context("Initializing the l1 sync service")?;
 
+    // Spawn ExExs - if any
+    let exex_manager = ExExLauncher::new(Header::default(), Arc::clone(&chain_config), madara_exexs()).launch().await?;
+
     // Block provider startup.
     // `rpc_add_txs_method_provider` is a trait object that tells the RPC task where to put the transactions when using the Write endpoints.
     let (block_provider_service, rpc_add_txs_method_provider): (_, Arc<dyn AddTransactionProvider>) =
@@ -130,6 +136,7 @@ async fn main() -> anyhow::Result<()> {
                     importer,
                     Arc::clone(&l1_data_provider),
                     run_cmd.devnet,
+                    exex_manager,
                     prometheus_service.registry(),
                     telemetry_service.new_handle(),
                 )?;
