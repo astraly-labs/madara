@@ -13,7 +13,7 @@ use mc_exec::{BlockifierStateAdapter, ExecutionContext};
 use mp_block::{BlockId, BlockTag, MadaraPendingBlock};
 use mp_class::ConvertedClass;
 use mp_convert::ToFelt;
-use mp_exex::{ExExManager, ExExNotification};
+use mp_exex::{ExExManagerHandle, ExExNotification};
 use mp_receipt::from_blockifier_execution_info;
 use mp_state_update::{
     ContractStorageDiffItem, DeclaredClassItem, DeployedContractItem, NonceUpdate, ReplacedClassItem, StateDiff,
@@ -178,7 +178,7 @@ pub struct BlockProductionTask<Mempool: MempoolProvider> {
     pub(crate) executor: TransactionExecutor<BlockifierStateAdapter>,
     l1_data_provider: Arc<dyn L1DataProvider>,
     current_pending_tick: usize,
-    exex_manager: Option<Arc<ExExManager>>,
+    exex_manager: Option<ExExManagerHandle>,
 }
 
 impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
@@ -192,7 +192,7 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
         importer: Arc<BlockImporter>,
         mempool: Arc<Mempool>,
         l1_data_provider: Arc<dyn L1DataProvider>,
-        exex_manager: Option<Arc<ExExManager>>,
+        exex_manager: Option<ExExManagerHandle>,
     ) -> Result<Self, Error> {
         let parent_block_hash = backend
             .get_block_hash(&BlockId::Tag(BlockTag::Latest))?
@@ -433,9 +433,9 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
         log::info!("⛏️  Closed block #{} with {} transactions - {:?}", block_n, n_txs, start_time.elapsed());
 
         if let Some(exex_manager) = &self.exex_manager {
-            if exex_manager.handle().has_capacity() {
+            if exex_manager.has_capacity() {
                 let notification = ExExNotification::ChainCommitted { new: Arc::new(BlockNumber(block_n)) };
-                match exex_manager.handle().send(notification) {
+                match exex_manager.send(notification) {
                     Ok(_) => {}
                     Err(e) => {
                         log::error!("Could not send ExEx notification: {}", e.to_string());

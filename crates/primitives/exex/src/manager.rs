@@ -1,6 +1,7 @@
 use futures::ready;
 use mp_block::Header;
 use starknet_api::block::BlockNumber;
+use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::{
     collections::VecDeque,
@@ -130,6 +131,83 @@ impl ExExManager {
         let next_id = self.next_id;
         self.buffer.push_back((next_id, notification));
         self.next_id += 1;
+    }
+}
+
+impl std::future::Future for ExExManager {
+    type Output = anyhow::Result<()>;
+
+    /// Main loop of the [`ExExManager`]. The order of operations is as follows:
+    /// 1. Handle incoming ExEx events.
+    /// 2. Drain [`ExExManagerHandle`] notifications, push them to the internal buffer and update
+    ///    the internal buffer capacity.
+    /// 3. Send notifications from the internal buffer to those ExExes that are ready to receive new
+    ///    notifications.
+    /// 4. Remove notifications from the internal buffer that have been sent to **all** ExExes and
+    ///    update the internal buffer capacity.
+    /// 5. Update the channel with the lowest [`FinishedExExHeight`] among all ExExes.
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+
+        // Handle incoming ExEx events
+        for exex in &mut this.exex_handles {
+            while let Poll::Ready(Some(event)) = exex.receiver.poll_recv(cx) {
+                match event {
+                    ExExEvent::FinishedHeight(height) => exex.finished_height = Some(height),
+                }
+            }
+        }
+
+        // Drain handle notifications
+        while this.buffer.len() < this.max_capacity {
+            if let Poll::Ready(Some(notification)) = this.handle_rx.poll_recv(cx) {
+                this.push_notification(notification);
+                continue;
+            }
+            break;
+        }
+
+        // Update capacity
+        this.update_capacity();
+
+        // Advance all poll senders
+        let mut min_id = usize::MAX;
+        for idx in (0..this.exex_handles.len()).rev() {
+            let mut exex = this.exex_handles.swap_remove(idx);
+
+            // It is a logic error for this to ever underflow since the manager manages the
+            // notification IDs
+            let notification_index = exex
+                .next_notification_id
+                .checked_sub(this.min_id)
+                .expect("exex expected notification ID outside the manager's range");
+            if let Some(notification) = this.buffer.get(notification_index) {
+                if let Poll::Ready(Err(err)) = exex.send(cx, notification) {
+                    // The channel was closed, which is irrecoverable for the manager
+                    return Poll::Ready(Err(err.into()));
+                }
+            }
+            min_id = min_id.min(exex.next_notification_id);
+            this.exex_handles.push(exex);
+        }
+
+        // Remove processed buffered notifications
+        this.buffer.retain(|&(id, _)| id >= min_id);
+        this.min_id = min_id;
+
+        // Update capacity
+        this.update_capacity();
+
+        // Update watch channel block number
+        let finished_height = this
+            .exex_handles
+            .iter_mut()
+            .try_fold(u64::MAX, |curr, exex| exex.finished_height.map_or(Err(()), |height| Ok(height.0.min(curr))));
+        if let Ok(finished_height) = finished_height {
+            let _ = this.finished_height.send(FinishedExExHeight::Height(BlockNumber(finished_height)));
+        }
+
+        Poll::Pending
     }
 }
 

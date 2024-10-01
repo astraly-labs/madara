@@ -7,7 +7,7 @@ use mc_devnet::{ChainGenesisDescription, DevnetKeys};
 use mc_mempool::{block_production::BlockProductionTask, L1DataProvider, Mempool};
 use mc_metrics::MetricsRegistry;
 use mc_telemetry::TelemetryHandle;
-use mp_exex::ExExManager;
+use mp_exex::ExExManagerHandle;
 use mp_utils::service::Service;
 use tokio::task::JoinSet;
 
@@ -20,7 +20,7 @@ struct StartParams {
     l1_data_provider: Arc<dyn L1DataProvider>,
     is_devnet: bool,
     n_devnet_contracts: u64,
-    exex_manager: Option<Arc<ExExManager>>,
+    exex_manager: Option<ExExManagerHandle>,
 }
 
 pub struct BlockProductionService {
@@ -36,7 +36,7 @@ impl BlockProductionService {
         block_import: Arc<BlockImporter>,
         l1_data_provider: Arc<dyn L1DataProvider>,
         is_devnet: bool,
-        exex_manager: Option<Arc<ExExManager>>,
+        exex_manager: Option<ExExManagerHandle>,
         _metrics_handle: &MetricsRegistry,
         _telemetry: TelemetryHandle,
     ) -> anyhow::Result<Self> {

@@ -8,7 +8,7 @@ use futures::{
 use mp_block::Header;
 use mp_chain_config::ChainConfig;
 
-use crate::{context::ExExContext, ExExHandle, ExExManager};
+use crate::{context::ExExContext, ExExHandle, ExExManager, ExExManagerHandle};
 
 const DEFAULT_EXEX_MANAGER_CAPACITY: usize = 16;
 
@@ -32,7 +32,7 @@ impl ExExLauncher {
     ///
     /// Spawns all extensions and returns the handle to the exex manager if any extensions are
     /// installed.
-    pub async fn launch(self) -> anyhow::Result<Option<Arc<ExExManager>>> {
+    pub async fn launch(self) -> anyhow::Result<Option<ExExManagerHandle>> {
         let Self { head, chain_config, extensions } = self;
 
         if extensions.is_empty() {
@@ -66,7 +66,13 @@ impl ExExLauncher {
         future::join_all(exexes).await;
 
         let exex_manager = ExExManager::new(exex_handles, DEFAULT_EXEX_MANAGER_CAPACITY);
-        Ok(Some(Arc::new(exex_manager)))
+        let handle = exex_manager.handle();
+        tokio::spawn(async move {
+            if let Err(e) = exex_manager.await {
+                eprintln!("ExExManager error: {:?}", e);
+            }
+        });
+        Ok(Some(handle))
     }
 }
 
