@@ -434,7 +434,7 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
 
         if let Some(exex_manager) = &self.exex_manager {
             if exex_manager.has_capacity() {
-                let notification = ExExNotification::ChainCommitted { new: Arc::new(BlockNumber(block_n)) };
+                let notification = ExExNotification::BlockClosed { new: BlockNumber(block_n) };
                 match exex_manager.send(notification) {
                     Ok(_) => {}
                     Err(e) => {

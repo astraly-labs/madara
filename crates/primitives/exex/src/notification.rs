@@ -1,6 +1,5 @@
 use std::{
     pin::Pin,
-    sync::Arc,
     task::{Context, Poll},
 };
 
@@ -13,17 +12,17 @@ use tokio::sync::mpsc::Receiver;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ExExNotification {
     /// Chain got committed without a reorg, and only the new chain is returned.
-    ChainCommitted {
+    BlockClosed {
         /// The new chain after commit.
-        new: Arc<BlockNumber>,
+        new: BlockNumber,
     },
 }
 
 impl ExExNotification {
     /// Returns the committed chain.
-    pub fn committed_chain(&self) -> Option<Arc<BlockNumber>> {
+    pub fn closed_block(&self) -> BlockNumber {
         match self {
-            Self::ChainCommitted { new } => Some(new.clone()),
+            Self::BlockClosed { new } => *new,
         }
     }
 }
