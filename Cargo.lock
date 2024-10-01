@@ -5818,6 +5818,7 @@ dependencies = [
  "mp-chain-config",
  "mp-class",
  "mp-convert",
+ "mp-exex",
  "mp-receipt",
  "mp-transactions",
  "mp-utils",

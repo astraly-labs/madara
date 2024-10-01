@@ -29,6 +29,7 @@ mp-convert = { workspace = true }
 mp-receipt = { workspace = true }
 mp-transactions = { workspace = true }
 mp-utils = { workspace = true }
+mp-exex = { workspace = true }
 
 # Starknet
 starknet-core = { workspace = true }

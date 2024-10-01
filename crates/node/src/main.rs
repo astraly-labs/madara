@@ -153,6 +153,7 @@ async fn main() -> anyhow::Result<()> {
                     )?,
                     &db_service,
                     importer,
+                    exex_manager,
                     telemetry_service.new_handle(),
                 )
                 .await
