@@ -5502,6 +5502,7 @@ dependencies = [
  "hyper 0.14.29",
  "ip_network",
  "jsonrpsee",
+ "lazy_static",
  "log",
  "mc-block-import",
  "mc-db",

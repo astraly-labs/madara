@@ -4,14 +4,15 @@ use std::{
 };
 
 use futures::Stream;
+use mp_block::MadaraPendingBlock;
 use starknet_api::block::BlockNumber;
 use tokio::sync::mpsc::Receiver;
 
 /// Notifications sent to an `ExEx`.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum ExExNotification {
     /// A new block got produced by the Block Production task.
-    BlockProduced { new: BlockNumber },
+    BlockProduced { block: Box<MadaraPendingBlock>, block_number: BlockNumber },
     /// A new block got synced by the full node.
     BlockSynced { new: BlockNumber },
 }
