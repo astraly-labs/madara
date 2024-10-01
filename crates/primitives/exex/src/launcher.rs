@@ -5,7 +5,6 @@ use futures::{
     future::{self, BoxFuture},
     FutureExt,
 };
-use mp_block::Header;
 use mp_chain_config::ChainConfig;
 
 use crate::{context::ExExContext, ExExHandle, ExExManager, ExExManagerHandle};
@@ -13,19 +12,14 @@ use crate::{context::ExExContext, ExExHandle, ExExManager, ExExManagerHandle};
 const DEFAULT_EXEX_MANAGER_CAPACITY: usize = 16;
 
 pub struct ExExLauncher {
-    head: Header,
     chain_config: Arc<ChainConfig>,
     extensions: Vec<(String, Box<dyn BoxedLaunchExEx>)>,
 }
 
 impl ExExLauncher {
     /// Create a new `ExExLauncher` with the given extensions.
-    pub const fn new(
-        head: Header,
-        chain_config: Arc<ChainConfig>,
-        extensions: Vec<(String, Box<dyn BoxedLaunchExEx>)>,
-    ) -> Self {
-        Self { head, chain_config, extensions }
+    pub const fn new(chain_config: Arc<ChainConfig>, extensions: Vec<(String, Box<dyn BoxedLaunchExEx>)>) -> Self {
+        Self { chain_config, extensions }
     }
 
     /// Launches all execution extensions.
@@ -33,7 +27,7 @@ impl ExExLauncher {
     /// Spawns all extensions and returns the handle to the exex manager if any extensions are
     /// installed.
     pub async fn launch(self) -> anyhow::Result<Option<ExExManagerHandle>> {
-        let Self { head, chain_config, extensions } = self;
+        let Self { chain_config, extensions } = self;
 
         if extensions.is_empty() {
             // nothing to launch
@@ -45,11 +39,11 @@ impl ExExLauncher {
 
         for (id, exex) in extensions {
             // create a new exex handle
-            let (handle, events, notifications) = ExExHandle::new(id.clone(), head.clone());
+            let (handle, events, notifications) = ExExHandle::new(id.clone());
             exex_handles.push(handle);
 
             // create the launch context for the exex
-            let context = ExExContext { head: head.clone(), chain_config: chain_config.clone(), events, notifications };
+            let context = ExExContext { chain_config: chain_config.clone(), events, notifications };
 
             exexes.push(async move {
                 // init the exex

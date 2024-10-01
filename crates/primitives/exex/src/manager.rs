@@ -1,5 +1,4 @@
 use futures::ready;
-use mp_block::Header;
 use starknet_api::block::BlockNumber;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -322,10 +321,10 @@ pub struct ExExHandle {
 }
 
 impl ExExHandle {
-    pub fn new(id: String, node_head: Header) -> (Self, UnboundedSender<ExExEvent>, ExExNotifications) {
+    pub fn new(id: String) -> (Self, UnboundedSender<ExExEvent>, ExExNotifications) {
         let (notification_tx, notification_rx) = mpsc::channel(1);
         let (event_tx, event_rx) = mpsc::unbounded_channel();
-        let notifications = ExExNotifications::new(node_head, notification_rx);
+        let notifications = ExExNotifications::new(notification_rx);
 
         (
             Self {

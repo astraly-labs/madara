@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use mp_block::Header;
 use mp_chain_config::ChainConfig;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -8,9 +7,6 @@ use crate::{notification::ExExNotifications, ExExEvent};
 
 /// Captures the context that an `ExEx` has access to.
 pub struct ExExContext {
-    /// The current head.
-    pub head: Header,
-
     /// The chain config
     pub chain_config: Arc<ChainConfig>,
 

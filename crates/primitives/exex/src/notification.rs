@@ -4,7 +4,6 @@ use std::{
 };
 
 use futures::Stream;
-use mp_block::Header;
 use starknet_api::block::BlockNumber;
 use tokio::sync::mpsc::Receiver;
 
@@ -30,15 +29,13 @@ impl ExExNotification {
 /// A stream of [`ExExNotification`]s. The stream will emit notifications for all blocks.
 #[derive(Debug)]
 pub struct ExExNotifications {
-    #[allow(unused)]
-    node_head: Header,
     notifications: Receiver<ExExNotification>,
 }
 
 impl ExExNotifications {
     /// Creates a new instance of [`ExExNotifications`].
-    pub const fn new(node_head: Header, notifications: Receiver<ExExNotification>) -> Self {
-        Self { node_head, notifications }
+    pub const fn new(notifications: Receiver<ExExNotification>) -> Self {
+        Self { notifications }
     }
 }
 

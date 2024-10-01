@@ -32,7 +32,9 @@ async fn get_random_user() -> Result<(), Box<dyn std::error::Error>> {
 pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
     while let Some(notification) = ctx.notifications.next().await {
         let block_number = notification.closed_block();
-        log::info!("👋 Hello from the ExEx (#{})", block_number);
+        log::info!("👋 Hello from the ExEx (triggered at block #{})", block_number);
+
+        log::info!("{:?}", ctx.chain_config);
 
         // Fetch and print random user information
         if let Err(e) = get_random_user().await {

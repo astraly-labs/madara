@@ -18,7 +18,6 @@ use mc_mempool::{GasPriceProvider, L1DataProvider, Mempool};
 use mc_metrics::MetricsService;
 use mc_rpc::providers::{AddTransactionProvider, ForwardToProvider, MempoolAddTxProvider};
 use mc_telemetry::{SysInfo, TelemetryService};
-use mp_block::Header;
 use mp_convert::ToFelt;
 use mp_exex::ExExLauncher;
 use mp_utils::service::{Service, ServiceGroup};
@@ -119,7 +118,7 @@ async fn main() -> anyhow::Result<()> {
     .context("Initializing the l1 sync service")?;
 
     // Spawn ExExs - if any
-    let exex_manager = ExExLauncher::new(Header::default(), Arc::clone(&chain_config), madara_exexs()).launch().await?;
+    let exex_manager = ExExLauncher::new(Arc::clone(&chain_config), madara_exexs()).launch().await?;
 
     // Block provider startup.
     // `rpc_add_txs_method_provider` is a trait object that tells the RPC task where to put the transactions when using the Write endpoints.
