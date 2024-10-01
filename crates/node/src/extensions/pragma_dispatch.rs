@@ -19,9 +19,13 @@ async fn get_random_user() -> Result<(), Box<dyn std::error::Error>> {
                 (user["name"].as_object(), user["email"].as_str(), user["location"]["city"].as_str())
             {
                 log::info!("👤 Random User Information:");
-                log::info!("Name: {} {}", name["first"].as_str().unwrap_or(""), name["last"].as_str().unwrap_or(""));
-                log::info!("Email: {}", email);
-                log::info!("City: {}", location);
+                log::info!(
+                    "\t👦 Name: {} {}",
+                    name["first"].as_str().unwrap_or(""),
+                    name["last"].as_str().unwrap_or("")
+                );
+                log::info!("\t💌 Email: {}", email);
+                log::info!("\t🏛️ City: {}", location);
             }
         }
     }
@@ -34,11 +38,9 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
         let block_number = notification.closed_block();
         log::info!("👋 Hello from the ExEx (triggered at block #{})", block_number);
 
-        // Just get a random user from an API
         if let Err(e) = get_random_user().await {
             log::error!("😱 Failed to fetch random user: {}", e);
         }
-
         ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
     }
     Ok(())

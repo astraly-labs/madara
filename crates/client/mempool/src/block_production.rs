@@ -1,5 +1,6 @@
 // TODO: Move this into its own crate.
 
+use anyhow::Context;
 use blockifier::blockifier::transaction_executor::{TransactionExecutor, VisitedSegmentsMapping};
 use blockifier::bouncer::{Bouncer, BouncerWeights, BuiltinCount};
 use blockifier::state::cached_state::CommitmentStateDiff;
@@ -431,18 +432,7 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
         self.current_pending_tick = 0;
 
         log::info!("⛏️  Closed block #{} with {} transactions - {:?}", block_n, n_txs, start_time.elapsed());
-
-        if let Some(exex_manager) = &self.exex_manager {
-            if exex_manager.has_capacity() {
-                let notification = ExExNotification::BlockClosed { new: BlockNumber(block_n) };
-                match exex_manager.send(notification) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::error!("Could not send ExEx notification: {}", e.to_string());
-                    }
-                }
-            }
-        }
+        let _ = self.notify_exexs(block_n).context("Sending notification to ExExs");
 
         Ok(())
     }
@@ -494,5 +484,15 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
 
     fn block_n(&self) -> u64 {
         self.executor.block_context.block_info().block_number.0
+    }
+
+    /// Sends a notification to the ExExs that a block has been closed.
+    fn notify_exexs(&self, block_n: u64) -> anyhow::Result<()> {
+        let Some(manager) = self.exex_manager.as_ref() else {
+            return Ok(());
+        };
+
+        let notification = ExExNotification::BlockClosed { new: BlockNumber(block_n) };
+        manager.send(notification).map_err(|e| anyhow::anyhow!("Could not send ExEx notification: {}", e))
     }
 }

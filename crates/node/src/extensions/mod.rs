@@ -17,5 +17,8 @@ where
 
 /// List of all ExEx that will be ran along Madara.
 pub fn madara_exexs() -> Vec<(String, Box<dyn BoxedLaunchExEx>)> {
-    vec![("Pragma Dispatch ExEx".to_string(), box_exex(exex_pragma_dispatch))]
+    vec![
+        ("Pragma Dispatch ExEx".to_string(), box_exex(exex_pragma_dispatch)),
+        ("Pragma Dispatch ExEx Two".to_string(), box_exex(exex_pragma_dispatch)),
+    ]
 }

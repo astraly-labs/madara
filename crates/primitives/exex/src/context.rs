@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use mp_chain_config::ChainConfig;
 use tokio::sync::mpsc::UnboundedSender;
+
+use mp_chain_config::ChainConfig;
 
 use crate::{notification::ExExNotifications, ExExEvent};
 

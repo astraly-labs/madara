@@ -86,7 +86,6 @@ pub trait LaunchExEx: Send {
 pub type BoxExEx = BoxFuture<'static, anyhow::Result<()>>;
 
 /// A version of [`LaunchExEx`] that returns a boxed future. Makes the trait object-safe.
-#[allow(unused)]
 pub trait BoxedLaunchExEx: Send + Sync {
     /// Launches the `ExEx` and returns a boxed future.
     fn launch(self: Box<Self>, ctx: ExExContext) -> BoxFuture<'static, anyhow::Result<BoxExEx>>;

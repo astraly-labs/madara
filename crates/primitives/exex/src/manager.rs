@@ -28,7 +28,6 @@ use crate::{event::ExExEvent, head::FinishedExExHeight, notification::ExExNotifi
 /// - Backpressure
 /// - Error handling
 /// - Monitoring
-#[allow(unused)]
 #[derive(Debug)]
 pub struct ExExManager {
     /// Handles to communicate with the `ExEx`'s.
@@ -113,7 +112,6 @@ impl ExExManager {
     }
     /// Updates the current buffer capacity and notifies all `is_ready` watchers of the manager's
     /// readiness to receive notifications.
-    #[allow(unused)]
     fn update_capacity(&self) {
         let capacity = self.max_capacity.saturating_sub(self.buffer.len());
         self.current_capacity.store(capacity, Ordering::Relaxed);
@@ -125,7 +123,6 @@ impl ExExManager {
 
     /// Pushes a new notification into the managers internal buffer, assigning the notification a
     /// unique ID.
-    #[allow(unused)]
     pub fn push_notification(&mut self, notification: ExExNotification) {
         let next_id = self.next_id;
         self.buffer.push_back((next_id, notification));
@@ -202,6 +199,7 @@ impl std::future::Future for ExExManager {
             .exex_handles
             .iter_mut()
             .try_fold(u64::MAX, |curr, exex| exex.finished_height.map_or(Err(()), |height| Ok(height.0.min(curr))));
+
         if let Ok(finished_height) = finished_height {
             let _ = this.finished_height.send(FinishedExExHeight::Height(BlockNumber(finished_height)));
         }
@@ -211,7 +209,6 @@ impl std::future::Future for ExExManager {
 }
 
 /// A handle to communicate with the [`ExExManager`].
-#[allow(unused)]
 #[derive(Debug)]
 pub struct ExExManagerHandle {
     /// Channel to send notifications to the `ExEx` manager.
@@ -303,7 +300,6 @@ impl Clone for ExExManagerHandle {
 /// A handle should be created for each `ExEx` with a unique ID. The channels returned by
 /// [`ExExHandle::new`] should be given to the `ExEx`, while the handle itself should be given to
 /// the manager in [`ExExManager::new`].
-#[allow(unused)]
 #[derive(Debug)]
 pub struct ExExHandle {
     /// The execution extension's ID.
@@ -343,7 +339,6 @@ impl ExExHandle {
     /// successfully reserved.
     ///
     /// When the notification is sent, it is considered delivered.
-    #[allow(unused)]
     fn send(
         &mut self,
         cx: &mut Context<'_>,
