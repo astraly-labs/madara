@@ -1,8 +1,8 @@
-use super::AddTransactionProvider;
 use crate::{errors::StarknetRpcApiError, utils::display_internal_server_error};
 use jsonrpsee::core::{async_trait, RpcResult};
 use mc_mempool::Mempool;
 use mc_mempool::MempoolProvider;
+use mp_rpc_provider::AddTransactionProvider;
 use starknet_core::types::{
     BroadcastedDeclareTransaction, BroadcastedDeployAccountTransaction, BroadcastedInvokeTransaction,
     DeclareTransactionResult, DeployAccountTransactionResult, InvokeTransactionResult,

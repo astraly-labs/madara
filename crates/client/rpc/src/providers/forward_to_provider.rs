@@ -1,4 +1,5 @@
 use jsonrpsee::core::{async_trait, RpcResult};
+use mp_rpc_provider::AddTransactionProvider;
 use starknet_core::types::{
     BroadcastedDeclareTransaction, BroadcastedDeployAccountTransaction, BroadcastedInvokeTransaction,
     DeclareTransactionResult, DeployAccountTransactionResult, InvokeTransactionResult,
@@ -6,8 +7,6 @@ use starknet_core::types::{
 use starknet_providers::{Provider, ProviderError};
 
 use crate::{bail_internal_server_error, errors::StarknetRpcApiError};
-
-use super::AddTransactionProvider;
 
 pub struct ForwardToProvider<P: Provider + Send + Sync> {
     provider: P,

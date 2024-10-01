@@ -10,20 +10,10 @@ use tokio::sync::mpsc::Receiver;
 /// Notifications sent to an `ExEx`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ExExNotification {
-    /// Chain got committed without a reorg, and only the new chain is returned.
-    BlockClosed {
-        /// The new chain after commit.
-        new: BlockNumber,
-    },
-}
-
-impl ExExNotification {
-    /// Returns the committed chain.
-    pub fn closed_block(&self) -> BlockNumber {
-        match self {
-            Self::BlockClosed { new } => *new,
-        }
-    }
+    /// A new block got produced by the Block Production task.
+    BlockProduced { new: BlockNumber },
+    /// A new block got synced by the full node.
+    BlockSynced { new: BlockNumber },
 }
 
 /// A stream of [`ExExNotification`]s. The stream will emit notifications for all blocks.

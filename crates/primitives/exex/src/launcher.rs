@@ -6,6 +6,7 @@ use futures::{
     FutureExt,
 };
 use mp_chain_config::ChainConfig;
+use mp_rpc_provider::AddTransactionProvider;
 
 use crate::{context::ExExContext, ExExHandle, ExExManager, ExExManagerHandle};
 
@@ -14,12 +15,17 @@ const DEFAULT_EXEX_MANAGER_CAPACITY: usize = 16;
 pub struct ExExLauncher {
     chain_config: Arc<ChainConfig>,
     extensions: Vec<(String, Box<dyn BoxedLaunchExEx>)>,
+    rpc_add_txs_method_provider: Arc<dyn AddTransactionProvider>,
 }
 
 impl ExExLauncher {
     /// Create a new `ExExLauncher` with the given extensions.
-    pub const fn new(chain_config: Arc<ChainConfig>, extensions: Vec<(String, Box<dyn BoxedLaunchExEx>)>) -> Self {
-        Self { chain_config, extensions }
+    pub const fn new(
+        chain_config: Arc<ChainConfig>,
+        extensions: Vec<(String, Box<dyn BoxedLaunchExEx>)>,
+        rpc_add_txs_method_provider: Arc<dyn AddTransactionProvider>,
+    ) -> Self {
+        Self { chain_config, extensions, rpc_add_txs_method_provider }
     }
 
     /// Launches all execution extensions.
@@ -27,7 +33,7 @@ impl ExExLauncher {
     /// Spawns all extensions and returns the handle to the exex manager if any extensions are
     /// installed.
     pub async fn launch(self) -> anyhow::Result<Option<ExExManagerHandle>> {
-        let Self { chain_config, extensions } = self;
+        let Self { chain_config, extensions, rpc_add_txs_method_provider } = self;
 
         if extensions.is_empty() {
             // nothing to launch
@@ -43,7 +49,12 @@ impl ExExLauncher {
             exex_handles.push(handle);
 
             // create the launch context for the exex
-            let context = ExExContext { chain_config: chain_config.clone(), events, notifications };
+            let context = ExExContext {
+                chain_config: chain_config.clone(),
+                rpc_add_txs_method_provider: rpc_add_txs_method_provider.clone(),
+                events,
+                notifications,
+            };
 
             exexes.push(async move {
                 // init the exex

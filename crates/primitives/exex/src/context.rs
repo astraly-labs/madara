@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use mp_rpc_provider::AddTransactionProvider;
 use tokio::sync::mpsc::UnboundedSender;
 
 use mp_chain_config::ChainConfig;
@@ -10,6 +11,9 @@ use crate::{notification::ExExNotifications, ExExEvent};
 pub struct ExExContext {
     /// The chain config
     pub chain_config: Arc<ChainConfig>,
+
+    /// RPC Provider
+    pub rpc_add_txs_method_provider: Arc<dyn AddTransactionProvider>,
 
     /// Channel used to send [`ExExEvent`]s to the rest of the node.
     ///

@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use jsonrpsee::server::ServerHandle;
+use mp_rpc_provider::AddTransactionProvider;
 use tokio::task::JoinSet;
 
 use mc_db::DatabaseService;
 use mc_metrics::MetricsRegistry;
-use mc_rpc::{providers::AddTransactionProvider, versioned_rpc_api, Starknet};
+use mc_rpc::{versioned_rpc_api, Starknet};
 use mp_chain_config::ChainConfig;
 use mp_utils::service::Service;
 

@@ -9,6 +9,7 @@ use mp_chain_config::{ChainConfig, StarknetVersion};
 use mp_receipt::{
     ExecutionResources, ExecutionResult, FeePayment, InvokeTransactionReceipt, PriceUnit, TransactionReceipt,
 };
+use mp_rpc_provider::AddTransactionProvider;
 use mp_state_update::{
     ContractStorageDiffItem, DeclaredClassItem, DeployedContractItem, NonceUpdate, ReplacedClassItem, StateDiff,
     StorageEntry,
@@ -21,7 +22,7 @@ use starknet_core::types::{
 };
 use std::sync::Arc;
 
-use crate::{providers::AddTransactionProvider, Starknet};
+use crate::Starknet;
 
 #[cfg(test)]
 pub struct TestTransactionProvider;

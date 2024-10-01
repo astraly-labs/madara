@@ -491,8 +491,7 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
         let Some(manager) = self.exex_manager.as_ref() else {
             return Ok(());
         };
-
-        let notification = ExExNotification::BlockClosed { new: BlockNumber(block_n) };
+        let notification = ExExNotification::BlockProduced { new: BlockNumber(block_n) };
         manager.send(notification).map_err(|e| anyhow::anyhow!("Could not send ExEx notification: {}", e))
     }
 }

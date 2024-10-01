@@ -13,6 +13,7 @@ pub mod utils;
 pub mod versions;
 
 use jsonrpsee::RpcModule;
+use mp_rpc_provider::AddTransactionProvider;
 use starknet_types_core::felt::Felt;
 use std::sync::Arc;
 
@@ -23,7 +24,6 @@ use mp_chain_config::{ChainConfig, RpcVersion};
 use mp_convert::ToFelt;
 
 use errors::{StarknetRpcApiError, StarknetRpcResult};
-use providers::AddTransactionProvider;
 use utils::ResultExt;
 
 /// A Starknet RPC server for Madara

@@ -11,12 +11,13 @@ use anyhow::Context;
 use clap::Parser;
 use extensions::madara_exexs;
 use mc_block_import::BlockImporter;
+use mp_rpc_provider::AddTransactionProvider;
 use std::sync::Arc;
 
 use mc_db::DatabaseService;
 use mc_mempool::{GasPriceProvider, L1DataProvider, Mempool};
 use mc_metrics::MetricsService;
-use mc_rpc::providers::{AddTransactionProvider, ForwardToProvider, MempoolAddTxProvider};
+use mc_rpc::providers::{ForwardToProvider, MempoolAddTxProvider};
 use mc_telemetry::{SysInfo, TelemetryService};
 use mp_convert::ToFelt;
 use mp_exex::ExExLauncher;
@@ -125,10 +126,11 @@ async fn main() -> anyhow::Result<()> {
         // Block production service. (authority)
         true => {
             let mempool = Arc::new(Mempool::new(Arc::clone(db_service.backend()), Arc::clone(&l1_data_provider)));
-            let mempool_provider = MempoolAddTxProvider::new(Arc::clone(&mempool));
+            let mempool_provider = Arc::new(MempoolAddTxProvider::new(Arc::clone(&mempool)));
 
             // Launch the ExEx manager for configured ExExs - if any.
-            let exex_manager = ExExLauncher::new(Arc::clone(&chain_config), madara_exexs()).launch().await?;
+            let exex_manager =
+                ExExLauncher::new(Arc::clone(&chain_config), madara_exexs(), mempool_provider.clone()).launch().await?;
 
             let block_production_service = BlockProductionService::new(
                 &run_cmd.block_production_params,
@@ -142,12 +144,12 @@ async fn main() -> anyhow::Result<()> {
                 telemetry_service.new_handle(),
             )?;
 
-            (ServiceGroup::default().with(block_production_service), Arc::new(mempool_provider))
+            (ServiceGroup::default().with(block_production_service), mempool_provider)
         }
         // Block sync service. (full node)
         false => {
             // TODO(rate-limit): we may get rate limited with this unconfigured provider?
-            let gateway_provider = ForwardToProvider::new(SequencerGatewayProvider::new(
+            let gateway_provider = Arc::new(ForwardToProvider::new(SequencerGatewayProvider::new(
                 run_cmd
                     .network
                     .context(
@@ -159,10 +161,11 @@ async fn main() -> anyhow::Result<()> {
                     .context("You should provide a `--network` argument to ensure you're syncing from the right FGW")?
                     .feeder_gateway(),
                 chain_config.chain_id.to_felt(),
-            ));
+            )));
 
             // Launch the ExEx manager for configured ExExs - if any.
-            let exex_manager = ExExLauncher::new(Arc::clone(&chain_config), madara_exexs()).launch().await?;
+            let exex_manager =
+                ExExLauncher::new(Arc::clone(&chain_config), madara_exexs(), gateway_provider.clone()).launch().await?;
 
             // Feeder gateway sync service.
             let sync_service = SyncService::new(
@@ -179,7 +182,7 @@ async fn main() -> anyhow::Result<()> {
             .await
             .context("Initializing sync service")?;
 
-            (ServiceGroup::default().with(sync_service), Arc::new(gateway_provider))
+            (ServiceGroup::default().with(sync_service), gateway_provider)
         }
     };
 
