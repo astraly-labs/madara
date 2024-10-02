@@ -21,6 +21,9 @@ use mp_transactions::broadcasted_to_blockifier;
 
 const PENDING_BLOCK: BlockId = BlockId::Tag(BlockTag::Pending);
 
+// Update the feed ids from the Feed Registry every 500 blocks. (500s)
+const UPDATE_FEEDS_INTERVAL: u64 = 500;
+
 lazy_static::lazy_static! {
     // TODO: Keystore path?
     pub static ref ACCOUNT_ADDRESS: Felt = felt!("0x4a2b383d808b7285cc98b2309f974f5111633c84fd82c9375c118485d2d57ba");
@@ -51,7 +54,7 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
         };
 
         // Fetch feed IDs every 500 blocks or on the first iteration
-        if block_number.0.saturating_sub(last_fetch_block) >= 500 || feed_ids.is_empty() {
+        if block_number.0.saturating_sub(last_fetch_block) >= UPDATE_FEEDS_INTERVAL || feed_ids.is_empty() {
             match get_feed_ids_from_registry(&ctx.starknet).await {
                 Ok(new_feed_ids) => {
                     feed_ids = new_feed_ids;
