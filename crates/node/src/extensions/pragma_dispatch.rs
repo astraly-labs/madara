@@ -1,30 +1,92 @@
 //! ExEx of Pragma Dispatcher
 //! Adds a new TX at the end of each block, dispatching a message through
 //! Hyperlane.
+use std::sync::Arc;
 
 use futures::StreamExt;
-use mp_block::MadaraPendingBlock;
+use starknet_api::felt;
+use starknet_core::types::{
+    BroadcastedInvokeTransaction, BroadcastedInvokeTransactionV1, BroadcastedTransaction, Felt,
+};
+use starknet_signers::SigningKey;
+
+use mc_devnet::{Call, Multicall, Selector};
+use mc_mempool::transaction_hash;
+use mp_chain_config::ChainConfig;
+use mp_convert::ToFelt;
 use mp_exex::{ExExContext, ExExEvent, ExExNotification};
-use starknet_api::{block::BlockNumber, felt};
-use starknet_core::types::Felt;
+use mp_transactions::broadcasted_to_blockifier;
 
 lazy_static::lazy_static! {
+    pub static ref ACCOUNT_ADDRESS: Felt = felt!("0x4a2b383d808b7285cc98b2309f974f5111633c84fd82c9375c118485d2d57ba");
+    pub static ref PRIVATE_KEY: SigningKey = SigningKey::from_secret_scalar(felt!("0x7a9779748888c95d96bbbce041b5109c6ffc0c4f30561c0170384a5922d9e91"));
+
     pub static ref PRAGMA_DISPATCHER_ADDRESS: Felt = felt!("0x2a85bd616f912537c50a49a4076db02c00b29b2cdc8a197ce92ed1837fa875b");
+    pub static ref PRAGMA_FEED_IDS: Vec<Felt> = vec![
+        felt!("18669995996566340"), // BTC/USD: Spot Median
+        felt!("19514442401534788"), // ETH/USD: Spot Median
+    ];
 }
 
+/// 🧩 Pragma main ExEx.
+/// At the end of each produced block by the node, adds a new dispatch transaction
+/// using the Pragma Dispatcher contract.
 pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
+    let mut nonce = Felt::ZERO;
     while let Some(notification) = ctx.notifications.next().await {
-        let (_block, block_number): (Box<MadaraPendingBlock>, BlockNumber) = match notification {
-            ExExNotification::BlockProduced { block, block_number } => (block, block_number),
+        let block_number = match notification {
+            ExExNotification::BlockProduced { block: _, block_number } => block_number,
             ExExNotification::BlockSynced { new } => {
                 // This ExEx doesn't do anything for Synced blocks from the Full node
                 ctx.events.send(ExExEvent::FinishedHeight(new))?;
-                return Ok(());
+                continue;
             }
         };
 
-        log::info!("👋 Hello from the ExEx (triggered at block #{})", block_number);
+        // Create the new Dispatch TX.
+        let dispatch_tx = create_dispatch_tx(ctx.chain_config.clone(), &nonce)?;
+        nonce += Felt::ONE;
+
+        log::info!("🧩 [#{}] Pragma's ExEx: Adding dispatch transaction...", block_number);
+        ctx.rpc_add_txs_method_provider.add_invoke_transaction(dispatch_tx).await?;
+
         ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
     }
     Ok(())
+}
+
+/// Creates a new Dispatch transaction.
+/// The transaction will be signed using the `ACCOUNT_ADDRESS` and `PRIVATE_KEY` constants.
+fn create_dispatch_tx(chain_config: Arc<ChainConfig>, nonce: &Felt) -> anyhow::Result<BroadcastedInvokeTransaction> {
+    let mut tx = BroadcastedInvokeTransaction::V1(BroadcastedInvokeTransactionV1 {
+        sender_address: *ACCOUNT_ADDRESS,
+        calldata: Multicall::default()
+            .with(Call {
+                to: *PRAGMA_DISPATCHER_ADDRESS,
+                selector: Selector::from("dispatch"),
+                calldata: PRAGMA_FEED_IDS.clone(),
+            })
+            .flatten()
+            .collect(),
+        max_fee: Felt::ZERO, // TODO: ?
+        signature: vec![],
+        nonce: *nonce,
+        is_query: false,
+    });
+
+    let (blockifier_tx, _) = broadcasted_to_blockifier(
+        BroadcastedTransaction::Invoke(tx.clone()),
+        chain_config.chain_id.to_felt(),
+        chain_config.latest_protocol_version,
+    )?;
+
+    let signature = PRIVATE_KEY.sign(&transaction_hash(&blockifier_tx))?;
+
+    let tx_signature = match &mut tx {
+        BroadcastedInvokeTransaction::V1(tx) => &mut tx.signature,
+        BroadcastedInvokeTransaction::V3(tx) => &mut tx.signature,
+    };
+    *tx_signature = vec![signature.r, signature.s];
+
+    Ok(tx)
 }

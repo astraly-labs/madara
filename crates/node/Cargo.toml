@@ -32,6 +32,7 @@ mp-chain-config = { workspace = true }
 mp-convert = { workspace = true }
 mp-exex = { workspace = true }
 mp-rpc-provider = { workspace = true }
+mp-transactions = { workspace = true }
 mp-utils = { workspace = true }
 
 # Starknet
@@ -63,6 +64,7 @@ reqwest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_yaml.workspace = true
+starknet-signers = { workspace = true }
 thiserror.workspace = true
 tokio = { workspace = true }
 tower-http.workspace = true
