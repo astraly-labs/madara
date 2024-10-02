@@ -38,15 +38,14 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
     while let Some(notification) = ctx.notifications.next().await {
         let block_number = match notification {
             ExExNotification::BlockProduced { block: _, block_number } => block_number,
-            ExExNotification::BlockSynced { new } => {
+            ExExNotification::BlockSynced { block_number } => {
                 // This ExEx doesn't do anything for Synced blocks from the Full node
-                ctx.events.send(ExExEvent::FinishedHeight(new))?;
+                ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
                 continue;
             }
         };
 
         let dispatch_tx = create_dispatch_tx(&ctx.starknet)?;
-
         log::info!("🧩 [#{}] Pragma's ExEx: Adding dispatch transaction...", block_number);
         ctx.starknet.add_invoke_transaction(dispatch_tx).await?;
 

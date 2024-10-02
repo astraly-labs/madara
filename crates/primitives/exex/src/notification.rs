@@ -14,7 +14,7 @@ pub enum ExExNotification {
     /// A new block got produced by the Block Production task.
     BlockProduced { block: Box<MadaraPendingBlock>, block_number: BlockNumber },
     /// A new block got synced by the full node.
-    BlockSynced { new: BlockNumber },
+    BlockSynced { block_number: BlockNumber },
 }
 
 /// A stream of [`ExExNotification`]s. The stream will emit notifications for all blocks.
