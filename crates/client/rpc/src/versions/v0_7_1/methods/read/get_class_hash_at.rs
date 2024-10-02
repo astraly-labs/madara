@@ -1,7 +1,7 @@
+use mp_rpc::errors::{StarknetRpcApiError, StarknetRpcResult};
 use starknet_core::types::BlockId;
 use starknet_types_core::felt::Felt;
 
-use crate::errors::{StarknetRpcApiError, StarknetRpcResult};
 use crate::utils::ResultExt;
 use crate::Starknet;
 

@@ -5517,7 +5517,7 @@ dependencies = [
  "mp-chain-config",
  "mp-convert",
  "mp-exex",
- "mp-rpc-provider",
+ "mp-rpc",
  "mp-transactions",
  "mp-utils",
  "primitive-types",
@@ -5720,6 +5720,7 @@ dependencies = [
  "mp-chain-config",
  "mp-class",
  "mp-convert",
+ "mp-rpc",
  "rstest 0.18.2",
  "starknet-core",
  "starknet-types-core",
@@ -5748,6 +5749,7 @@ dependencies = [
  "mp-convert",
  "mp-exex",
  "mp-receipt",
+ "mp-rpc",
  "mp-state-update",
  "mp-transactions",
  "mp-utils",
@@ -5793,7 +5795,7 @@ dependencies = [
  "mp-class",
  "mp-convert",
  "mp-receipt",
- "mp-rpc-provider",
+ "mp-rpc",
  "mp-state-update",
  "mp-transactions",
  "mp-utils",
@@ -6023,7 +6025,7 @@ dependencies = [
  "mc-block-import",
  "mp-block",
  "mp-chain-config",
- "mp-rpc-provider",
+ "mp-rpc",
  "rayon",
  "rstest 0.18.2",
  "serde",
@@ -6051,13 +6053,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "mp-rpc-provider"
+name = "mp-rpc"
 version = "0.7.0"
 dependencies = [
  "anyhow",
  "jsonrpsee",
  "lazy_static",
  "log",
+ "mc-db",
+ "mp-block",
+ "mp-chain-config",
+ "mp-convert",
  "primitive-types",
  "reqwest 0.12.5",
  "rstest 0.18.2",
@@ -6065,6 +6071,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "starknet-core",
+ "starknet_api",
  "thiserror",
 ]
 

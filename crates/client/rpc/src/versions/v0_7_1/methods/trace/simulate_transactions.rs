@@ -1,8 +1,8 @@
 use super::trace_transaction::FALLBACK_TO_SEQUENCER_WHEN_VERSION_BELOW;
-use crate::errors::{StarknetRpcApiError, StarknetRpcResult};
 use crate::utils::ResultExt;
 use crate::Starknet;
 use mc_exec::{execution_result_to_tx_trace, ExecutionContext};
+use mp_rpc::errors::{StarknetRpcApiError, StarknetRpcResult};
 use mp_transactions::broadcasted_to_blockifier;
 use starknet_core::types::{BlockId, BroadcastedTransaction, SimulatedTransaction, SimulationFlag};
 use std::sync::Arc;
@@ -19,7 +19,8 @@ pub async fn simulate_transactions(
     if starknet_version < FALLBACK_TO_SEQUENCER_WHEN_VERSION_BELOW {
         return Err(StarknetRpcApiError::UnsupportedTxnVersion);
     }
-    let exec_context = ExecutionContext::new_in_block(Arc::clone(&starknet.backend), &block_info)?;
+    let exec_context = ExecutionContext::new_in_block(Arc::clone(&starknet.backend), &block_info)
+        .map_err(<mc_exec::Error as Into<StarknetRpcApiError>>::into)?;
 
     let charge_fee = !simulation_flags.contains(&SimulationFlag::SkipFeeCharge);
     let validate = !simulation_flags.contains(&SimulationFlag::SkipValidate);
@@ -30,7 +31,9 @@ pub async fn simulate_transactions(
         .collect::<Result<Vec<_>, _>>()
         .or_internal_server_error("Failed to convert broadcasted transaction to blockifier")?;
 
-    let execution_resuls = exec_context.re_execute_transactions([], user_transactions, charge_fee, validate)?;
+    let execution_resuls = exec_context
+        .re_execute_transactions([], user_transactions, charge_fee, validate)
+        .map_err(<mc_exec::Error as Into<StarknetRpcApiError>>::into)?;
 
     let simulated_transactions = execution_resuls
         .iter()

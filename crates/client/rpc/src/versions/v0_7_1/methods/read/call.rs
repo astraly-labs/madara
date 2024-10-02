@@ -5,10 +5,9 @@ use starknet_types_core::felt::Felt;
 
 use mc_exec::ExecutionContext;
 
-use crate::errors::StarknetRpcApiError;
-use crate::errors::StarknetRpcResult;
 use crate::versions::v0_7_1::methods::trace::trace_transaction::FALLBACK_TO_SEQUENCER_WHEN_VERSION_BELOW;
 use crate::Starknet;
+use mp_rpc::errors::{StarknetRpcApiError, StarknetRpcResult};
 
 /// Call a Function in a Contract Without Creating a Transaction
 ///
@@ -33,14 +32,17 @@ use crate::Starknet;
 pub fn call(starknet: &Starknet, request: FunctionCall, block_id: BlockId) -> StarknetRpcResult<Vec<Felt>> {
     let block_info = starknet.get_block_info(&block_id)?;
 
-    let exec_context = ExecutionContext::new_in_block(Arc::clone(&starknet.backend), &block_info)?;
+    let exec_context = ExecutionContext::new_in_block(Arc::clone(&starknet.backend), &block_info)
+        .map_err(<mc_exec::Error as Into<StarknetRpcApiError>>::into)?;
 
     if block_info.protocol_version() < &FALLBACK_TO_SEQUENCER_WHEN_VERSION_BELOW {
         return Err(StarknetRpcApiError::UnsupportedTxnVersion);
     }
 
     let FunctionCall { contract_address, entry_point_selector, calldata } = request;
-    let results = exec_context.call_contract(&contract_address, &entry_point_selector, &calldata)?;
+    let results = exec_context
+        .call_contract(&contract_address, &entry_point_selector, &calldata)
+        .map_err(<mc_exec::Error as Into<StarknetRpcApiError>>::into)?;
 
     Ok(results)
 }

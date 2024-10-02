@@ -6,12 +6,13 @@ use std::sync::Arc;
 use futures::StreamExt;
 use starknet_api::felt;
 use starknet_core::types::{
-    BroadcastedInvokeTransaction, BroadcastedInvokeTransactionV1, BroadcastedTransaction, Felt,
+    BlockId, BlockTag, BroadcastedInvokeTransaction, BroadcastedInvokeTransactionV1, BroadcastedTransaction, Felt,
 };
 use starknet_signers::SigningKey;
 
 use mc_devnet::{Call, Multicall, Selector};
 use mc_mempool::transaction_hash;
+use mc_rpc::versions::v0_7_1::{StarknetReadRpcApiV0_7_1Server, StarknetWriteRpcApiV0_7_1Server};
 use mp_chain_config::ChainConfig;
 use mp_convert::ToFelt;
 use mp_exex::{ExExContext, ExExEvent, ExExNotification};
@@ -32,7 +33,8 @@ lazy_static::lazy_static! {
 /// At the end of each produced block by the node, adds a new dispatch transaction
 /// using the Pragma Dispatcher contract.
 pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
-    let mut nonce = Felt::ZERO;
+    // Retrieve initial nonce for user
+    let mut nonce = ctx.starknet.get_nonce(BlockId::Tag(BlockTag::Pending), *ACCOUNT_ADDRESS)?;
     while let Some(notification) = ctx.notifications.next().await {
         let block_number = match notification {
             ExExNotification::BlockProduced { block: _, block_number } => block_number,
@@ -48,7 +50,7 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
         nonce += Felt::ONE;
 
         log::info!("🧩 [#{}] Pragma's ExEx: Adding dispatch transaction...", block_number);
-        ctx.rpc_add_txs_method_provider.add_invoke_transaction(dispatch_tx).await?;
+        ctx.starknet.add_invoke_transaction(dispatch_tx).await?;
 
         ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
     }

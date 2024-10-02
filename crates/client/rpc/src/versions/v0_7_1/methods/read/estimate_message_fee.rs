@@ -7,11 +7,11 @@ use starknet_types_core::felt::Felt;
 use mc_exec::ExecutionContext;
 use mp_transactions::L1HandlerTransaction;
 
-use crate::errors::StarknetRpcApiError;
-use crate::errors::StarknetRpcResult;
 use crate::utils::OptionExt;
 use crate::versions::v0_7_1::methods::trace::trace_transaction::FALLBACK_TO_SEQUENCER_WHEN_VERSION_BELOW;
 use crate::Starknet;
+use mp_rpc::errors::StarknetRpcApiError;
+use mp_rpc::errors::StarknetRpcResult;
 
 /// Estimate the L2 fee of a message sent on L1
 ///
@@ -40,11 +40,13 @@ pub async fn estimate_message_fee(
         return Err(StarknetRpcApiError::UnsupportedTxnVersion);
     }
 
-    let exec_context = ExecutionContext::new_in_block(Arc::clone(&starknet.backend), &block_info)?;
+    let exec_context = ExecutionContext::new_in_block(Arc::clone(&starknet.backend), &block_info)
+        .map_err(<mc_exec::Error as Into<StarknetRpcApiError>>::into)?;
 
     let transaction = convert_message_into_transaction(message, starknet.chain_id());
     let execution_result = exec_context
-        .re_execute_transactions([], [transaction], false, true)?
+        .re_execute_transactions([], [transaction], false, true)
+        .map_err(<mc_exec::Error as Into<StarknetRpcApiError>>::into)?
         .pop()
         .ok_or_internal_server_error("Failed to convert BroadcastedTransaction to AccountTransaction")?;
 

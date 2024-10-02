@@ -1,6 +1,6 @@
+use mp_rpc::errors::{StarknetRpcApiError, StarknetRpcResult};
 use starknet_core::types::{BlockId, ContractClass, Felt};
 
-use crate::errors::{StarknetRpcApiError, StarknetRpcResult};
 use crate::utils::{OptionExt, ResultExt};
 use crate::Starknet;
 

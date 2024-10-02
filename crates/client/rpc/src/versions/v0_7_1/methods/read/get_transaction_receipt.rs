@@ -1,7 +1,7 @@
 use mp_block::MadaraMaybePendingBlockInfo;
 use starknet_core::types::{Felt, TransactionFinalityStatus, TransactionReceiptWithBlockInfo};
 
-use crate::errors::{StarknetRpcApiError, StarknetRpcResult};
+use mp_rpc::errors::{StarknetRpcApiError, StarknetRpcResult};
 
 use crate::utils::ResultExt;
 use crate::Starknet;

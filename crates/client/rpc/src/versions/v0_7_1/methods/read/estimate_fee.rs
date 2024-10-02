@@ -5,11 +5,11 @@ use starknet_core::types::{BlockId, BroadcastedTransaction, FeeEstimate, Simulat
 use mc_exec::ExecutionContext;
 use mp_transactions::broadcasted_to_blockifier;
 
-use crate::errors::StarknetRpcApiError;
-use crate::errors::StarknetRpcResult;
 use crate::utils::ResultExt;
 use crate::versions::v0_7_1::methods::trace::trace_transaction::FALLBACK_TO_SEQUENCER_WHEN_VERSION_BELOW;
 use crate::Starknet;
+use mp_rpc::errors::StarknetRpcApiError;
+use mp_rpc::errors::StarknetRpcResult;
 
 /// Estimate the fee associated with transaction
 ///
@@ -34,7 +34,8 @@ pub async fn estimate_fee(
         return Err(StarknetRpcApiError::UnsupportedTxnVersion);
     }
 
-    let exec_context = ExecutionContext::new_in_block(Arc::clone(&starknet.backend), &block_info)?;
+    let exec_context = ExecutionContext::new_in_block(Arc::clone(&starknet.backend), &block_info)
+        .map_err(<mc_exec::Error as Into<StarknetRpcApiError>>::into)?;
 
     let transactions = request
         .into_iter()
@@ -44,7 +45,9 @@ pub async fn estimate_fee(
 
     let validate = !simulation_flags.contains(&SimulationFlagForEstimateFee::SkipValidate);
 
-    let execution_results = exec_context.re_execute_transactions([], transactions, true, validate)?;
+    let execution_results = exec_context
+        .re_execute_transactions([], transactions, true, validate)
+        .map_err(<mc_exec::Error as Into<StarknetRpcApiError>>::into)?;
 
     let fee_estimates =
         execution_results.iter().map(|result| exec_context.execution_result_to_fee_estimate(result)).collect();
