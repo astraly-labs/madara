@@ -60,7 +60,7 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
                 }
                 Err(e) => {
                     log::warn!("🧩 [#{}] Pragma's ExEx: Failed to fetch feed IDs: {:?}", block_number, e);
-                    // Continue the loop without failing
+                    // Don't crash the app and just stop the ExEx here
                     ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
                     continue;
                 }
