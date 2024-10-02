@@ -19,8 +19,7 @@ pub async fn trace_block_transactions(
         return Err(StarknetRpcApiError::UnsupportedTxnVersion);
     }
 
-    let exec_context = ExecutionContext::new_in_block(Arc::clone(&starknet.backend), &block.info)
-        .map_err(<mc_exec::Error as Into<StarknetRpcApiError>>::into)?;
+    let exec_context = ExecutionContext::new_in_block(Arc::clone(&starknet.backend), &block.info)?;
     let transactions: Vec<_> = block
         .inner
         .transactions
@@ -29,9 +28,7 @@ pub async fn trace_block_transactions(
         .map(|(tx, hash)| to_blockifier_transactions(starknet, block_id.into(), tx, &TransactionHash(*hash)))
         .collect::<Result<_, _>>()?;
 
-    let executions_results = exec_context
-        .re_execute_transactions([], transactions, true, true)
-        .map_err(<mc_exec::Error as Into<StarknetRpcApiError>>::into)?;
+    let executions_results = exec_context.re_execute_transactions([], transactions, true, true)?;
 
     let traces = executions_results
         .into_iter()

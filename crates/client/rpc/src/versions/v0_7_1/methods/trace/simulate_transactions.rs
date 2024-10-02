@@ -19,8 +19,7 @@ pub async fn simulate_transactions(
     if starknet_version < FALLBACK_TO_SEQUENCER_WHEN_VERSION_BELOW {
         return Err(StarknetRpcApiError::UnsupportedTxnVersion);
     }
-    let exec_context = ExecutionContext::new_in_block(Arc::clone(&starknet.backend), &block_info)
-        .map_err(<mc_exec::Error as Into<StarknetRpcApiError>>::into)?;
+    let exec_context = ExecutionContext::new_in_block(Arc::clone(&starknet.backend), &block_info)?;
 
     let charge_fee = !simulation_flags.contains(&SimulationFlag::SkipFeeCharge);
     let validate = !simulation_flags.contains(&SimulationFlag::SkipValidate);
@@ -31,9 +30,7 @@ pub async fn simulate_transactions(
         .collect::<Result<Vec<_>, _>>()
         .or_internal_server_error("Failed to convert broadcasted transaction to blockifier")?;
 
-    let execution_resuls = exec_context
-        .re_execute_transactions([], user_transactions, charge_fee, validate)
-        .map_err(<mc_exec::Error as Into<StarknetRpcApiError>>::into)?;
+    let execution_resuls = exec_context.re_execute_transactions([], user_transactions, charge_fee, validate)?;
 
     let simulated_transactions = execution_resuls
         .iter()

@@ -28,8 +28,7 @@ pub async fn trace_transaction(
         return Err(StarknetRpcApiError::UnsupportedTxnVersion);
     }
 
-    let exec_context = ExecutionContext::new_in_block(Arc::clone(&starknet.backend), &block.info)
-        .map_err(<mc_exec::Error as Into<StarknetRpcApiError>>::into)?;
+    let exec_context = ExecutionContext::new_in_block(Arc::clone(&starknet.backend), &block.info)?;
 
     let mut block_txs = Iterator::zip(block.inner.transactions.into_iter(), block.info.tx_hashes())
         .map(|(tx, hash)| to_blockifier_transactions(starknet, block.info.as_block_id(), tx, &TransactionHash(*hash)));
@@ -40,9 +39,8 @@ pub async fn trace_transaction(
     let transaction =
         block_txs.next().ok_or_internal_server_error("There should be at least one transaction in the block")??;
 
-    let mut executions_results = exec_context
-        .re_execute_transactions(transactions_before, [transaction], true, true)
-        .map_err(<mc_exec::Error as Into<StarknetRpcApiError>>::into)?;
+    let mut executions_results =
+        exec_context.re_execute_transactions(transactions_before, [transaction], true, true)?;
 
     let execution_result =
         executions_results.pop().ok_or_internal_server_error("No execution info returned for the last transaction")?;
