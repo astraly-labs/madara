@@ -56,8 +56,7 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
                 Ok(new_feed_ids) => {
                     feed_ids = new_feed_ids;
                     last_fetch_block = block_number.0;
-                    log::info!("🧩 [#{}] Pragma's ExEx: Updated feed IDs", block_number);
-                    log::info!("📜 Fetched ids: {:?}", feed_ids);
+                    log::info!("🧩 [#{}] Pragma's ExEx: 📜 Updated feed IDs: {:?}", block_number, feed_ids);
                 }
                 Err(e) => {
                     log::warn!("🧩 [#{}] Pragma's ExEx: Failed to fetch feed IDs: {:?}", block_number, e);
