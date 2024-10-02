@@ -27,8 +27,8 @@ lazy_static::lazy_static! {
     pub static ref PRIVATE_KEY: SigningKey = SigningKey::from_secret_scalar(felt!("0x7a9779748888c95d96bbbce041b5109c6ffc0c4f30561c0170384a5922d9e91"));
 
     // TODO: Replace by the correct addresses
-    pub static ref PRAGMA_FEEDS_REGISTRY_ADDRESS: Felt = felt!("0x2a85bd616f912537c50a49a4076db02c00b29b2cdc8a197ce92ed1837fa875b");
-    pub static ref PRAGMA_DISPATCHER_ADDRESS: Felt = felt!("0x2a85bd616f912537c50a49a4076db02c00b29b2cdc8a197ce92ed1837fa875b");
+    pub static ref PRAGMA_FEEDS_REGISTRY_ADDRESS: Felt = felt!("0x6c05a18cb507fdbb2049047538f2824116e118e5699ae163c7473da38df2bb");
+    pub static ref PRAGMA_DISPATCHER_ADDRESS: Felt = felt!("0x25a70290a333bc22397a6dac4c44d3af50c3adfe7f397d504422fd72cb9858a");
 
     pub static ref MAX_FEE: Felt = felt!("2386F26FC10000"); // 0.01 eth
 }
@@ -37,7 +37,8 @@ lazy_static::lazy_static! {
 /// At the end of each produced block by the node, adds a new dispatch transaction
 /// using the Pragma Dispatcher contract.
 pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
-    let feed_ids = get_feed_ids_from_registry(&ctx.starknet).await?;
+    let mut feed_ids: Vec<Felt> = Vec::new();
+    let mut last_fetch_block = 0;
 
     while let Some(notification) = ctx.notifications.next().await {
         let block_number = match notification {
@@ -49,9 +50,41 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
             }
         };
 
-        let dispatch_tx = create_dispatch_tx(&ctx.starknet, &feed_ids)?;
-        log::info!("🧩 [#{}] Pragma's ExEx: Adding dispatch transaction...", block_number);
-        ctx.starknet.add_invoke_transaction(dispatch_tx).await?;
+        // Fetch feed IDs every 500 blocks or on the first iteration
+        if block_number.0.saturating_sub(last_fetch_block) >= 500 || feed_ids.is_empty() {
+            match get_feed_ids_from_registry(&ctx.starknet).await {
+                Ok(new_feed_ids) => {
+                    feed_ids = new_feed_ids;
+                    last_fetch_block = block_number.0;
+                    log::info!("🧩 [#{}] Pragma's ExEx: Updated feed IDs", block_number);
+                }
+                Err(e) => {
+                    log::warn!("🧩 [#{}] Pragma's ExEx: Failed to fetch feed IDs: {:?}", block_number, e);
+                    // Continue the loop without failing
+                    ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
+                    continue;
+                }
+            }
+        }
+
+        // Skip creating a dispatch transaction if we don't have any feed IDs
+        if feed_ids.is_empty() {
+            log::warn!("🧩 [#{}] Pragma's ExEx: No feed IDs available, skipping dispatch", block_number);
+            ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
+            continue;
+        }
+
+        match create_dispatch_tx(&ctx.starknet, &feed_ids) {
+            Ok(dispatch_tx) => {
+                log::info!("🧩 [#{}] Pragma's ExEx: Adding dispatch transaction...", block_number);
+                if let Err(e) = ctx.starknet.add_invoke_transaction(dispatch_tx).await {
+                    log::error!("🧩 [#{}] Pragma's ExEx: Failed to add dispatch transaction: {:?}", block_number, e);
+                }
+            }
+            Err(e) => {
+                log::error!("🧩 [#{}] Pragma's ExEx: Failed to create dispatch transaction: {:?}", block_number, e);
+            }
+        }
 
         ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
     }
