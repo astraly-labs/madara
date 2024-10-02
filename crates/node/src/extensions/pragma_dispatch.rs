@@ -22,6 +22,8 @@ lazy_static::lazy_static! {
     pub static ref ACCOUNT_ADDRESS: Felt = felt!("0x4a2b383d808b7285cc98b2309f974f5111633c84fd82c9375c118485d2d57ba");
     pub static ref PRIVATE_KEY: SigningKey = SigningKey::from_secret_scalar(felt!("0x7a9779748888c95d96bbbce041b5109c6ffc0c4f30561c0170384a5922d9e91"));
 
+    pub static ref MAX_FEE: Felt = felt!("2386F26FC10000"); // 0.01 eth
+
     pub static ref PRAGMA_DISPATCHER_ADDRESS: Felt = felt!("0x2a85bd616f912537c50a49a4076db02c00b29b2cdc8a197ce92ed1837fa875b");
     pub static ref PRAGMA_FEED_IDS: Vec<Felt> = vec![
         felt!("18669995996566340"), // BTC/USD: Spot Median
@@ -43,7 +45,6 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
             }
         };
 
-        // Create the new Dispatch TX.
         let dispatch_tx = create_dispatch_tx(&ctx.starknet)?;
 
         log::info!("🧩 [#{}] Pragma's ExEx: Adding dispatch transaction...", block_number);
@@ -67,7 +68,7 @@ fn create_dispatch_tx(starknet: &Arc<Starknet>) -> anyhow::Result<BroadcastedInv
             })
             .flatten()
             .collect(),
-        max_fee: Felt::ZERO,
+        max_fee: *MAX_FEE,
         signature: vec![], // This will get filled below
         nonce: starknet.get_nonce(BlockId::Tag(BlockTag::Pending), *ACCOUNT_ADDRESS)?,
         is_query: false,
