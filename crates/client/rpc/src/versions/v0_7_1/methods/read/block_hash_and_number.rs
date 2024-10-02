@@ -2,7 +2,7 @@ use mp_block::{BlockId, BlockTag};
 use mp_rpc::{errors::StarknetRpcResult, Starknet};
 use starknet_core::types::BlockHashAndNumber;
 
-use crate::utils::OptionExt;
+use mp_rpc::utils::OptionExt;
 
 /// Get the Most Recent Accepted Block Hash and Number
 ///

@@ -2,8 +2,8 @@ use mp_rpc::errors::{StarknetRpcApiError, StarknetRpcResult};
 use starknet_core::types::BlockId;
 use starknet_types_core::felt::Felt;
 
-use crate::utils::ResultExt;
 use crate::Starknet;
+use mp_rpc::utils::ResultExt;
 
 /// Get the nonce associated with the given address in the given block.
 ///

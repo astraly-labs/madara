@@ -6,7 +6,7 @@ use starknet_core::types::{
 };
 use starknet_providers::{Provider, ProviderError};
 
-use crate::bail_internal_server_error;
+use mp_rpc::bail_internal_server_error;
 
 pub struct ForwardToProvider<P: Provider + Send + Sync> {
     provider: P,

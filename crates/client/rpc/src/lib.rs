@@ -13,7 +13,7 @@ pub mod versions;
 
 use jsonrpsee::RpcModule;
 
-use mp_rpc::{errors::StarknetRpcApiError, Starknet};
+use mp_rpc::Starknet;
 
 /// Returns the RpcModule merged with all the supported RPC versions.
 pub fn versioned_rpc_api(starknet: &Starknet, read: bool, write: bool, trace: bool) -> anyhow::Result<RpcModule<()>> {
