@@ -89,12 +89,14 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
                         block_number,
                         invoke_result
                     );
+                    ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
                     continue;
                 }
                 invoke_result?
             }
             Err(e) => {
                 log::error!("🧩 [#{}] Pragma's ExEx: Failed to create dispatch transaction: {:?}", block_number, e);
+                ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
                 continue;
             }
         };
