@@ -1,14 +1,16 @@
 //! ExEx of Pragma Dispatcher
 //! Adds a new TX at the end of each block, dispatching a message through
 //! Hyperlane.
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
+use anyhow::bail;
 use futures::StreamExt;
 use mp_rpc::Starknet;
 use starknet_api::felt;
 use starknet_core::types::{
-    BlockId, BlockTag, BroadcastedInvokeTransaction, BroadcastedInvokeTransactionV1, BroadcastedTransaction, Felt,
-    FunctionCall,
+    BlockId, BlockTag, BroadcastedInvokeTransaction, BroadcastedInvokeTransactionV1, BroadcastedTransaction,
+    ExecutionResult, Felt, FunctionCall, InvokeTransactionReceipt, TransactionReceipt, TransactionReceiptWithBlockInfo,
+    TransactionStatus,
 };
 use starknet_signers::SigningKey;
 
@@ -18,9 +20,9 @@ use mc_rpc::versions::v0_7_1::{StarknetReadRpcApiV0_7_1Server, StarknetWriteRpcA
 use mp_convert::ToFelt;
 use mp_exex::{ExExContext, ExExEvent, ExExNotification};
 use mp_transactions::broadcasted_to_blockifier;
+use tokio::time::sleep;
 
 const PENDING_BLOCK: BlockId = BlockId::Tag(BlockTag::Pending);
-
 // Update the feed ids from the Feed Registry every 500 blocks. (500s)
 const UPDATE_FEEDS_INTERVAL: u64 = 500;
 
@@ -77,15 +79,70 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
             continue;
         }
 
-        match create_dispatch_tx(&ctx.starknet, &feed_ids) {
+        let invoke_result = match create_dispatch_tx(&ctx.starknet, &feed_ids) {
             Ok(dispatch_tx) => {
                 log::info!("🧩 [#{}] Pragma's ExEx: Adding dispatch transaction...", block_number);
-                if let Err(e) = ctx.starknet.add_invoke_transaction(dispatch_tx).await {
-                    log::error!("🧩 [#{}] Pragma's ExEx: Failed to add dispatch transaction: {:?}", block_number, e);
+                let invoke_result = ctx.starknet.add_invoke_transaction(dispatch_tx).await;
+                if invoke_result.is_err() {
+                    log::error!(
+                        "🧩 [#{}] Pragma's ExEx: Failed to add dispatch transaction: {:?}",
+                        block_number,
+                        invoke_result
+                    );
+                    continue;
                 }
+                invoke_result?
             }
             Err(e) => {
                 log::error!("🧩 [#{}] Pragma's ExEx: Failed to create dispatch transaction: {:?}", block_number, e);
+                continue;
+            }
+        };
+
+        let status = match get_transaction_status(&ctx.starknet, &invoke_result.transaction_hash).await {
+            Ok(status) => status,
+            Err(e) => {
+                log::error!("🧩 [#{}] Pragma's ExEx: Failed to get transaction status: {:?}", block_number, e);
+                ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
+                continue;
+            }
+        };
+
+        match status {
+            TransactionStatus::AcceptedOnL2(_) | TransactionStatus::AcceptedOnL1(_) => {
+                log::info!("🧩 [#{}] Pragma's ExEx: Transaction accepted. Status: {:?}", block_number, status);
+
+                let receipt = match ctx.starknet.get_transaction_receipt(invoke_result.transaction_hash).await {
+                    Ok(receipt) => receipt,
+                    Err(e) => {
+                        log::error!("🧩 [#{}] Pragma's ExEx: Failed to get transaction receipt: {:?}", block_number, e);
+                        ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
+                        continue;
+                    }
+                };
+
+                if let TransactionReceiptWithBlockInfo {
+                    receipt:
+                        TransactionReceipt::Invoke(InvokeTransactionReceipt {
+                            execution_result: ExecutionResult::Reverted { reason },
+                            ..
+                        }),
+                    ..
+                } = receipt
+                {
+                    log::error!(
+                        "🧩 [#{}] Pragma's ExEx: Transaction execution reverted. Reason: {}",
+                        block_number,
+                        reason
+                    );
+                }
+            }
+            TransactionStatus::Rejected => {
+                log::error!("🧩 [#{}] Pragma's ExEx: Transaction rejected. Status: {:?}", block_number, status);
+            }
+            TransactionStatus::Received => {
+                // This should never happen as our get_transaction_status function doesn't return Received
+                log::warn!("🧩 [#{}] Pragma's ExEx: Unexpected 'Received' status after polling", block_number);
             }
         }
 
@@ -134,6 +191,34 @@ fn sign_tx(
     };
     *tx_signature = vec![signature.r, signature.s];
     Ok(tx)
+}
+
+/// Wait for the TX to be accepted on chain & return status
+async fn get_transaction_status(
+    starknet: &Arc<Starknet>,
+    transaction_hash: &Felt,
+) -> anyhow::Result<TransactionStatus> {
+    const POLLING_INTERVAL: Duration = Duration::from_millis(100);
+    const ERROR_RETRY_INTERVAL: Duration = Duration::from_millis(10);
+    const MAX_RETRIES: u32 = 50; // 5 seconds total retry time
+
+    let mut retries = 0;
+
+    loop {
+        match starknet.get_transaction_status(*transaction_hash) {
+            Ok(TransactionStatus::Received) => {
+                log::debug!("🧩 Transaction status: Received. Polling again in {:?}...", POLLING_INTERVAL);
+                sleep(POLLING_INTERVAL).await;
+            }
+            Ok(status) => return Ok(status),
+            Err(e) if retries < MAX_RETRIES => {
+                log::debug!("🧩 Failed to get transaction status (retry {}/{}): {:?}", retries + 1, MAX_RETRIES, e);
+                retries += 1;
+                sleep(ERROR_RETRY_INTERVAL).await;
+            }
+            Err(e) => bail!("Failed to get transaction status after {} retries: {:?}", MAX_RETRIES, e),
+        }
+    }
 }
 
 /// Retrieves the available feed ids from the Pragma Feeds Registry.

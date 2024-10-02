@@ -5,7 +5,6 @@ use futures::{
     future::{self, BoxFuture},
     FutureExt,
 };
-use mp_chain_config::ChainConfig;
 use mp_rpc::Starknet;
 
 use crate::{context::ExExContext, ExExHandle, ExExManager, ExExManagerHandle};
@@ -13,19 +12,14 @@ use crate::{context::ExExContext, ExExHandle, ExExManager, ExExManagerHandle};
 const DEFAULT_EXEX_MANAGER_CAPACITY: usize = 16;
 
 pub struct ExExLauncher {
-    chain_config: Arc<ChainConfig>,
     extensions: Vec<(String, Box<dyn BoxedLaunchExEx>)>,
     starknet: Arc<Starknet>,
 }
 
 impl ExExLauncher {
     /// Create a new `ExExLauncher` with the given extensions.
-    pub const fn new(
-        chain_config: Arc<ChainConfig>,
-        extensions: Vec<(String, Box<dyn BoxedLaunchExEx>)>,
-        starknet: Arc<Starknet>,
-    ) -> Self {
-        Self { chain_config, extensions, starknet }
+    pub const fn new(extensions: Vec<(String, Box<dyn BoxedLaunchExEx>)>, starknet: Arc<Starknet>) -> Self {
+        Self { extensions, starknet }
     }
 
     /// Launches all execution extensions.
@@ -33,7 +27,7 @@ impl ExExLauncher {
     /// Spawns all extensions and returns the handle to the exex manager if any extensions are
     /// installed.
     pub async fn launch(self) -> anyhow::Result<Option<ExExManagerHandle>> {
-        let Self { chain_config, extensions, starknet } = self;
+        let Self { extensions, starknet } = self;
 
         if extensions.is_empty() {
             // nothing to launch
@@ -49,8 +43,7 @@ impl ExExLauncher {
             exex_handles.push(handle);
 
             // create the launch context for the exex
-            let context =
-                ExExContext { chain_config: chain_config.clone(), starknet: starknet.clone(), events, notifications };
+            let context = ExExContext { starknet: starknet.clone(), events, notifications };
 
             exexes.push(async move {
                 // init the exex

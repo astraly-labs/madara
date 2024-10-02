@@ -129,8 +129,7 @@ async fn main() -> anyhow::Result<()> {
                 Arc::new(Starknet::new(Arc::clone(db_service.backend()), chain_config.clone(), mempool_provider));
 
             // Launch the ExEx manager for configured ExExs - if any.
-            let exex_manager =
-                ExExLauncher::new(Arc::clone(&chain_config), madara_exexs(), starknet.clone()).launch().await?;
+            let exex_manager = ExExLauncher::new(madara_exexs(), starknet.clone()).launch().await?;
 
             let block_production_service = BlockProductionService::new(
                 &run_cmd.block_production_params,
@@ -166,8 +165,7 @@ async fn main() -> anyhow::Result<()> {
                 Arc::new(Starknet::new(Arc::clone(db_service.backend()), chain_config.clone(), gateway_provider));
 
             // Launch the ExEx manager for configured ExExs - if any.
-            let exex_manager =
-                ExExLauncher::new(Arc::clone(&chain_config), madara_exexs(), starknet.clone()).launch().await?;
+            let exex_manager = ExExLauncher::new(madara_exexs(), starknet.clone()).launch().await?;
 
             // Feeder gateway sync service.
             let sync_service = SyncService::new(
