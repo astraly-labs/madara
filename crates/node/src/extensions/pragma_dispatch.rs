@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use futures::StreamExt;
+use mp_rpc::Starknet;
 use starknet_api::felt;
 use starknet_core::types::{
     BlockId, BlockTag, BroadcastedInvokeTransaction, BroadcastedInvokeTransactionV1, BroadcastedTransaction, Felt,
@@ -13,7 +14,6 @@ use starknet_signers::SigningKey;
 use mc_devnet::{Call, Multicall, Selector};
 use mc_mempool::transaction_hash;
 use mc_rpc::versions::v0_7_1::{StarknetReadRpcApiV0_7_1Server, StarknetWriteRpcApiV0_7_1Server};
-use mp_chain_config::ChainConfig;
 use mp_convert::ToFelt;
 use mp_exex::{ExExContext, ExExEvent, ExExNotification};
 use mp_transactions::broadcasted_to_blockifier;
@@ -33,8 +33,6 @@ lazy_static::lazy_static! {
 /// At the end of each produced block by the node, adds a new dispatch transaction
 /// using the Pragma Dispatcher contract.
 pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
-    // Retrieve initial nonce for user
-    let mut nonce = ctx.starknet.get_nonce(BlockId::Tag(BlockTag::Pending), *ACCOUNT_ADDRESS)?;
     while let Some(notification) = ctx.notifications.next().await {
         let block_number = match notification {
             ExExNotification::BlockProduced { block: _, block_number } => block_number,
@@ -46,8 +44,7 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
         };
 
         // Create the new Dispatch TX.
-        let dispatch_tx = create_dispatch_tx(ctx.chain_config.clone(), &nonce)?;
-        nonce += Felt::ONE;
+        let dispatch_tx = create_dispatch_tx(&ctx.starknet)?;
 
         log::info!("🧩 [#{}] Pragma's ExEx: Adding dispatch transaction...", block_number);
         ctx.starknet.add_invoke_transaction(dispatch_tx).await?;
@@ -59,7 +56,7 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
 
 /// Creates a new Dispatch transaction.
 /// The transaction will be signed using the `ACCOUNT_ADDRESS` and `PRIVATE_KEY` constants.
-fn create_dispatch_tx(chain_config: Arc<ChainConfig>, nonce: &Felt) -> anyhow::Result<BroadcastedInvokeTransaction> {
+fn create_dispatch_tx(starknet: &Arc<Starknet>) -> anyhow::Result<BroadcastedInvokeTransaction> {
     let mut tx = BroadcastedInvokeTransaction::V1(BroadcastedInvokeTransactionV1 {
         sender_address: *ACCOUNT_ADDRESS,
         calldata: Multicall::default()
@@ -70,25 +67,31 @@ fn create_dispatch_tx(chain_config: Arc<ChainConfig>, nonce: &Felt) -> anyhow::R
             })
             .flatten()
             .collect(),
-        max_fee: Felt::ZERO, // TODO: ?
-        signature: vec![],
-        nonce: *nonce,
+        max_fee: Felt::ZERO,
+        signature: vec![], // This will get filled below
+        nonce: starknet.get_nonce(BlockId::Tag(BlockTag::Pending), *ACCOUNT_ADDRESS)?,
         is_query: false,
     });
+    tx = sign_tx(starknet, tx)?;
+    Ok(tx)
+}
 
+/// Sign a transaction using the constants.
+fn sign_tx(
+    starknet: &Arc<Starknet>,
+    mut tx: BroadcastedInvokeTransaction,
+) -> anyhow::Result<BroadcastedInvokeTransaction> {
     let (blockifier_tx, _) = broadcasted_to_blockifier(
         BroadcastedTransaction::Invoke(tx.clone()),
-        chain_config.chain_id.to_felt(),
-        chain_config.latest_protocol_version,
+        starknet.chain_config.chain_id.to_felt(),
+        starknet.chain_config.latest_protocol_version,
     )?;
 
     let signature = PRIVATE_KEY.sign(&transaction_hash(&blockifier_tx))?;
-
     let tx_signature = match &mut tx {
         BroadcastedInvokeTransaction::V1(tx) => &mut tx.signature,
         BroadcastedInvokeTransaction::V3(tx) => &mut tx.signature,
     };
     *tx_signature = vec![signature.r, signature.s];
-
     Ok(tx)
 }
