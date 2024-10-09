@@ -47,7 +47,8 @@ lazy_static::lazy_static! {
 pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
     // Feed ids that will be dispatched.
     // The first element is the length of the vec & after are the elements.
-    let mut feed_ids: Vec<Felt> = get_feed_ids_from_registry(&ctx.starknet).await.unwrap_or(vec![]);
+    let mut feed_ids: Vec<Felt> = get_feed_ids_from_registry(&ctx.starknet).await.unwrap_or(vec![Felt::ZERO]);
+    log::info!("🧩 Pragma's ExEx: Initialized feed IDs from registry. Total feeds: {}", feed_ids[0]);
 
     while let Some(notification) = ctx.notifications.next().await {
         let (block, block_number) = match notification {
@@ -58,7 +59,11 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
             }
         };
 
-        update_feed_ids_if_necessary(&ctx.starknet, &block, &mut feed_ids).await?;
+        if let Err(e) = update_feed_ids_if_necessary(&ctx.starknet, &block, &mut feed_ids).await {
+            log::error!("🧩 [#{}] Pragma's ExEx: Error updating feed IDs: {:?}", block_number, e);
+            ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
+            continue;
+        }
 
         if feed_ids.is_empty() {
             log::warn!("🧩 [#{}] Pragma's ExEx: No feed IDs available, skipping dispatch", block_number);
@@ -84,7 +89,9 @@ async fn update_feed_ids_if_necessary(
     current_block: &MadaraPendingBlock,
     feed_ids: &mut Vec<Felt>,
 ) -> anyhow::Result<()> {
-    if feed_ids.is_empty() {
+    // If the list is empty, it may be because the contract wasn't deployed before.
+    // Requery.
+    if *feed_ids == vec![Felt::ZERO] {
         *feed_ids = get_feed_ids_from_registry(starknet).await?;
         return Ok(());
     }
@@ -107,14 +114,20 @@ async fn update_feed_ids_if_necessary(
                         if !feed_ids.contains(&feed_id) {
                             feed_ids[0] += Felt::ONE;
                             feed_ids.push(feed_id);
+                            log::info!(
+                                "🧩 Pragma's ExEx: Added new feed ID: 0x{:x}. Total feeds: {}",
+                                feed_id,
+                                feed_ids[0]
+                            );
                         }
                     }
                 } else if selector == *REMOVED_FEED_ID_SELECTOR && event.data.len() >= 2 {
                     let feed_id = event.data[1];
                     if let Some(pos) = feed_ids.iter().position(|x| *x == feed_id) {
                         feed_ids.remove(pos);
+                        feed_ids[0] -= Felt::ONE;
+                        log::info!("🧩 Pragma's ExEx: Removed feed ID: 0x{:x}. Total feeds: {}", feed_id, feed_ids[0]);
                     }
-                    feed_ids[0] -= Felt::ONE;
                 }
             }
         }
