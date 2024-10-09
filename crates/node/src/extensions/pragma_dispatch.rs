@@ -63,6 +63,7 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
             }
         };
 
+        // Will update in-place the feed ids vec
         if let Err(e) = update_feed_ids_if_necessary(&ctx.starknet, &block, block_number.0, &mut feed_ids).await {
             log::error!("🧩 [#{}] Pragma's ExEx: Error while updating feed IDs: {:?}", block_number, e);
             ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
@@ -90,7 +91,7 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
 ///   * if we find the event [NewFeedId] or [RemovedFeedId] in the block's events.
 async fn update_feed_ids_if_necessary(
     starknet: &Arc<Starknet>,
-    current_block: &MadaraPendingBlock,
+    block: &MadaraPendingBlock,
     block_number: u64,
     feed_ids: &mut Vec<Felt>,
 ) -> anyhow::Result<()> {
@@ -102,7 +103,7 @@ async fn update_feed_ids_if_necessary(
         return Ok(());
     }
 
-    for receipt in &current_block.inner.receipts {
+    for receipt in &block.inner.receipts {
         if let mp_receipt::TransactionReceipt::Invoke(invoke_receipt) = receipt {
             for event in &invoke_receipt.events {
                 if event.from_address != *PRAGMA_FEEDS_REGISTRY_ADDRESS {
