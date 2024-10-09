@@ -76,7 +76,7 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
             continue;
         }
 
-        if let Err(e) = process_dispatch_transaction(&ctx, &feed_ids, block_number.0).await {
+        if let Err(e) = process_dispatch_transaction(&ctx, block_number.0, &feed_ids).await {
             log::error!("🧩 [#{}] Pragma's ExEx: Error while processing dispatch transaction: {:?}", block_number, e);
         }
 
@@ -146,7 +146,7 @@ async fn update_feed_ids_if_necessary(
 
 /// Create a Dispatch tx and sends it.
 /// Logs info about the tx status.
-async fn process_dispatch_transaction(ctx: &ExExContext, feed_ids: &[Felt], block_number: u64) -> anyhow::Result<()> {
+async fn process_dispatch_transaction(ctx: &ExExContext, block_number: u64, feed_ids: &[Felt]) -> anyhow::Result<()> {
     let invoke_result = create_and_add_dispatch_tx(&ctx.starknet, feed_ids, block_number).await?;
     let status = get_transaction_status(&ctx.starknet, &invoke_result.transaction_hash).await?;
 
