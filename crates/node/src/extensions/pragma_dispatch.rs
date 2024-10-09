@@ -103,26 +103,23 @@ async fn update_feed_ids_if_necessary(
                     continue;
                 }
 
-                if event.keys.is_empty() {
+                if event.keys.is_empty() || event.data.len() != 2 {
                     continue;
                 }
 
                 let selector = event.keys[0];
+                let feed_id = event.data[1];
                 if selector == *NEW_FEED_ID_SELECTOR {
-                    if event.data.len() >= 2 {
-                        let feed_id = event.data[1];
-                        if !feed_ids.contains(&feed_id) {
-                            feed_ids[0] += Felt::ONE;
-                            feed_ids.push(feed_id);
-                            log::info!(
-                                "🧩 Pragma's ExEx: Added new feed ID: 0x{:x}. Total feeds: {}",
-                                feed_id,
-                                feed_ids[0]
-                            );
-                        }
+                    if !feed_ids.contains(&feed_id) {
+                        feed_ids[0] += Felt::ONE;
+                        feed_ids.push(feed_id);
+                        log::info!(
+                            "🧩 Pragma's ExEx: Added new feed ID: 0x{:x}. Total feeds: {}",
+                            feed_id,
+                            feed_ids[0]
+                        );
                     }
-                } else if selector == *REMOVED_FEED_ID_SELECTOR && event.data.len() >= 2 {
-                    let feed_id = event.data[1];
+                } else if selector == *REMOVED_FEED_ID_SELECTOR {
                     if let Some(pos) = feed_ids.iter().position(|x| *x == feed_id) {
                         feed_ids.remove(pos);
                         feed_ids[0] -= Felt::ONE;
