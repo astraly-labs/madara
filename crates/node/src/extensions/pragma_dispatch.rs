@@ -39,6 +39,10 @@ lazy_static::lazy_static! {
     pub static ref NEW_FEED_ID_SELECTOR: Felt = felt!("0x012eaeb62184f1ca53999ece2d2273b81f9c64bc057a93dad05e09f970b030f9");
     // RemovedFeedId event selector
     pub static ref REMOVED_FEED_ID_SELECTOR: Felt = felt!("0x02a45c5a3b53e7afa46712156f544cec1b9d4679804036a16ec9521389117be4");
+
+    // Empty feed list. Used instead of [`Vec::is_empty`].
+    // The first element is the length of the vec & after are the elements.
+    pub static ref EMPTY_FEEDS: Vec<Felt> = vec![Felt::ZERO];
 }
 
 /// 🧩 Pragma main ExEx.
@@ -48,7 +52,7 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
     // Feed ids that will be dispatched.
     // The first element is the length of the vec & after are the elements.
     let mut feed_ids: Vec<Felt> = get_feed_ids_from_registry(&ctx.starknet).await.unwrap_or(vec![Felt::ZERO]);
-    log::info!("🧩 Pragma's ExEx: Initialized feed IDs from registry. Total feeds: {}", feed_ids[0]);
+    log::info!("🧩 Pragma's ExEx: Initialized feed IDs from Registry. Total feeds: {}", feed_ids[0]);
 
     while let Some(notification) = ctx.notifications.next().await {
         let (block, block_number) = match notification {
@@ -59,20 +63,20 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
             }
         };
 
-        if let Err(e) = update_feed_ids_if_necessary(&ctx.starknet, &block, &mut feed_ids).await {
-            log::error!("🧩 [#{}] Pragma's ExEx: Error updating feed IDs: {:?}", block_number, e);
+        if let Err(e) = update_feed_ids_if_necessary(&ctx.starknet, &block, block_number.0, &mut feed_ids).await {
+            log::error!("🧩 [#{}] Pragma's ExEx: Error while updating feed IDs: {:?}", block_number, e);
             ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
             continue;
         }
 
-        if feed_ids.is_empty() {
+        if feed_ids == *EMPTY_FEEDS {
             log::warn!("🧩 [#{}] Pragma's ExEx: No feed IDs available, skipping dispatch", block_number);
             ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
             continue;
         }
 
         if let Err(e) = process_dispatch_transaction(&ctx, &feed_ids, block_number.0).await {
-            log::error!("🧩 [#{}] Pragma's ExEx: Error processing dispatch transaction: {:?}", block_number, e);
+            log::error!("🧩 [#{}] Pragma's ExEx: Error while processing dispatch transaction: {:?}", block_number, e);
         }
 
         ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
@@ -87,12 +91,14 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
 async fn update_feed_ids_if_necessary(
     starknet: &Arc<Starknet>,
     current_block: &MadaraPendingBlock,
+    block_number: u64,
     feed_ids: &mut Vec<Felt>,
 ) -> anyhow::Result<()> {
     // If the list is empty, it may be because the contract wasn't deployed before.
     // Requery.
-    if *feed_ids == vec![Felt::ZERO] {
+    if *feed_ids == *EMPTY_FEEDS {
         *feed_ids = get_feed_ids_from_registry(starknet).await?;
+        log::info!("🧩 [#{}] Pragma's ExEx: Refreshed all feeds. Total feeds: {}", block_number, feed_ids[0]);
         return Ok(());
     }
 
@@ -112,7 +118,8 @@ async fn update_feed_ids_if_necessary(
                         feed_ids.push(feed_id);
                         feed_ids[0] += Felt::ONE;
                         log::info!(
-                            "🧩 Pragma's ExEx: Added new feed ID: 0x{:x}. Total feeds: {}",
+                            "🧩 [#{}] Pragma's ExEx: Added new feed ID \"0x{:x}\". Total feeds: {}",
+                            block_number,
                             feed_id,
                             feed_ids[0]
                         );
@@ -121,7 +128,12 @@ async fn update_feed_ids_if_necessary(
                     if let Some(pos) = feed_ids.iter().position(|x| *x == feed_id) {
                         feed_ids.remove(pos);
                         feed_ids[0] -= Felt::ONE;
-                        log::info!("🧩 Pragma's ExEx: Removed feed ID: 0x{:x}. Total feeds: {}", feed_id, feed_ids[0]);
+                        log::info!(
+                            "🧩 [#{}] Pragma's ExEx: Removed feed ID \"0x{:x}\". Total feeds: {}",
+                            block_number,
+                            feed_id,
+                            feed_ids[0]
+                        );
                     }
                 }
             }
