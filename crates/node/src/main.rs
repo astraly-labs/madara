@@ -103,7 +103,18 @@ async fn main() -> anyhow::Result<()> {
         l1_gas_setter.update_eth_l1_data_gas_price(fix_blob_gas as u128);
         l1_gas_setter.set_data_gas_price_sync_enabled(false);
     }
+    if let Some(strk_fix_gas) = run_cmd.l1_sync_params.strk_gas_price {
+        l1_gas_setter.update_strk_l1_gas_price(strk_fix_gas as u128);
+        l1_gas_setter.set_strk_gas_price_sync_enabled(false);
+    }
+    if let Some(strk_fix_blob_gas) = run_cmd.l1_sync_params.strk_blob_gas_price {
+        l1_gas_setter.update_strk_l1_data_gas_price(strk_fix_blob_gas as u128);
+        l1_gas_setter.set_strk_data_gas_price_sync_enabled(false);
+    }
     let l1_data_provider: Arc<dyn L1DataProvider> = Arc::new(l1_gas_setter.clone());
+
+    // declare mempool here so that it can be used to process l1->l2 messages in the l1 service
+    let mempool = Arc::new(Mempool::new(Arc::clone(db_service.backend()), Arc::clone(&l1_data_provider)));
 
     let l1_service = L1SyncService::new(
         &run_cmd.l1_sync_params,
@@ -114,85 +125,70 @@ async fn main() -> anyhow::Result<()> {
         chain_config.eth_core_contract_address,
         run_cmd.is_sequencer(),
         run_cmd.is_devnet(),
+        Arc::clone(&mempool),
     )
     .await
     .context("Initializing the l1 sync service")?;
 
     // Block provider startup.
     // `rpc_add_txs_method_provider` is a trait object that tells the RPC task where to put the transactions when using the Write endpoints.
-    let (block_provider_service, rpc_add_txs_method_provider): (_, Arc<dyn AddTransactionProvider>) = match run_cmd
-        .is_sequencer()
-    {
-        // Block production service. (authority)
-        true => {
-            let mempool = Arc::new(Mempool::new(Arc::clone(db_service.backend()), Arc::clone(&l1_data_provider)));
-            let mempool_provider = Arc::new(MempoolAddTxProvider::new(Arc::clone(&mempool)));
-            let starknet = Arc::new(Starknet::new(
-                Arc::clone(db_service.backend()),
-                chain_config.clone(),
-                mempool_provider.clone(),
-            ));
+    let (block_provider_service, rpc_add_txs_method_provider): (_, Arc<dyn AddTransactionProvider>) =
+        match run_cmd.is_sequencer() {
+            // Block production service. (authority)
+            true => {
+                let mempool_provider = Arc::new(MempoolAddTxProvider::new(Arc::clone(&mempool)));
+                let starknet = Arc::new(Starknet::new(
+                    Arc::clone(db_service.backend()),
+                    chain_config.clone(),
+                    mempool_provider.clone(),
+                ));
+                // Launch the ExEx manager for configured ExExs - if any.
+                let exex_manager = ExExLauncher::new(madara_exexs(), starknet).launch().await?;
 
-            // Launch the ExEx manager for configured ExExs - if any.
-            let exex_manager = ExExLauncher::new(madara_exexs(), starknet).launch().await?;
+                let block_production_service = BlockProductionService::new(
+                    &run_cmd.block_production_params,
+                    &db_service,
+                    Arc::clone(&mempool),
+                    importer,
+                    Arc::clone(&l1_data_provider),
+                    run_cmd.devnet,
+                    exex_manager,
+                    prometheus_service.registry(),
+                    telemetry_service.new_handle(),
+                )?;
 
-            let block_production_service = BlockProductionService::new(
-                &run_cmd.block_production_params,
-                &db_service,
-                Arc::clone(&mempool),
-                importer,
-                Arc::clone(&l1_data_provider),
-                run_cmd.devnet,
-                exex_manager,
-                prometheus_service.registry(),
-                telemetry_service.new_handle(),
-            )?;
+                (ServiceGroup::default().with(block_production_service), mempool_provider)
+            }
+            // Block sync service. (full node)
+            false => {
+                let gateway_provider = Arc::new(ForwardToProvider::new(SequencerGatewayProvider::new(
+                    chain_config.gateway_url.clone(),
+                    chain_config.feeder_gateway_url.clone(),
+                    chain_config.chain_id.to_felt(),
+                )));
+                let starknet = Arc::new(Starknet::new(
+                    Arc::clone(db_service.backend()),
+                    chain_config.clone(),
+                    gateway_provider.clone(),
+                ));
+                // Launch the ExEx manager for configured ExExs - if any.
+                let exex_manager = ExExLauncher::new(madara_exexs(), starknet).launch().await?;
 
-            (ServiceGroup::default().with(block_production_service), mempool_provider)
-        }
-        // Block sync service. (full node)
-        false => {
-            // TODO(rate-limit): we may get rate limited with this unconfigured provider?
-            let gateway_provider = Arc::new(ForwardToProvider::new(SequencerGatewayProvider::new(
-                run_cmd
-                    .network
-                    .context(
-                        "You should provide a `--network` argument to ensure you're syncing from the right gateway",
-                    )?
-                    .gateway(),
-                run_cmd
-                    .network
-                    .context("You should provide a `--network` argument to ensure you're syncing from the right FGW")?
-                    .feeder_gateway(),
-                chain_config.chain_id.to_felt(),
-            )));
-            let starknet = Arc::new(Starknet::new(
-                Arc::clone(db_service.backend()),
-                chain_config.clone(),
-                gateway_provider.clone(),
-            ));
+                // Feeder gateway sync service.
+                let sync_service = SyncService::new(
+                    &run_cmd.sync_params,
+                    Arc::clone(&chain_config),
+                    &db_service,
+                    importer,
+                    exex_manager,
+                    telemetry_service.new_handle(),
+                )
+                .await
+                .context("Initializing sync service")?;
 
-            // Launch the ExEx manager for configured ExExs - if any.
-            let exex_manager = ExExLauncher::new(madara_exexs(), starknet).launch().await?;
-
-            // Feeder gateway sync service.
-            let sync_service = SyncService::new(
-                &run_cmd.sync_params,
-                Arc::clone(&chain_config),
-                run_cmd
-                    .network
-                    .context("You should provide a `--network` argument to ensure you're syncing from the right FGW")?,
-                &db_service,
-                importer,
-                exex_manager,
-                telemetry_service.new_handle(),
-            )
-            .await
-            .context("Initializing sync service")?;
-
-            (ServiceGroup::default().with(sync_service), gateway_provider)
-        }
-    };
+                (ServiceGroup::default().with(sync_service), gateway_provider)
+            }
+        };
 
     let rpc_service = RpcService::new(
         &run_cmd.rpc_params,

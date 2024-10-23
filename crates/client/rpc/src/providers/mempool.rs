@@ -1,8 +1,8 @@
 use jsonrpsee::core::{async_trait, RpcResult};
-use mc_mempool::Mempool;
-use mc_mempool::MempoolProvider;
+use mc_mempool::{Mempool, MempoolProvider};
 use mp_rpc::errors::StarknetRpcApiError;
 use mp_rpc::AddTransactionProvider;
+use mp_transactions::BroadcastedDeclareTransactionV0;
 use starknet_core::types::{
     BroadcastedDeclareTransaction, BroadcastedDeployAccountTransaction, BroadcastedInvokeTransaction,
     DeclareTransactionResult, DeployAccountTransactionResult, InvokeTransactionResult,
@@ -22,6 +22,12 @@ impl MempoolAddTxProvider {
 
 #[async_trait]
 impl AddTransactionProvider for MempoolAddTxProvider {
+    async fn add_declare_v0_transaction(
+        &self,
+        declare_v0_transaction: BroadcastedDeclareTransactionV0,
+    ) -> RpcResult<DeclareTransactionResult> {
+        Ok(self.mempool.accept_declare_v0_tx(declare_v0_transaction).map_err(StarknetRpcApiError::from)?)
+    }
     async fn add_declare_transaction(
         &self,
         declare_transaction: BroadcastedDeclareTransaction,
