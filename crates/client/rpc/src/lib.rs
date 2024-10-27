@@ -3,7 +3,6 @@
 //! It uses the madara client and backend in order to answer queries.
 
 mod constants;
-mod macros;
 pub mod providers;
 #[cfg(test)]
 pub mod test_utils;
@@ -22,14 +21,25 @@ pub fn versioned_rpc_api(
     write: bool,
     trace: bool,
     internal: bool,
+    ws: bool,
 ) -> anyhow::Result<RpcModule<()>> {
     let mut rpc_api = RpcModule::new(());
 
-    merge_rpc_versions!(
-        rpc_api, starknet, read, write, trace, internal,
-        v0_7_1, // We can add new versions by adding the version module below
-                // , v0_8_0 (for example)
-    );
+    if read {
+        rpc_api.merge(versions::v0_7_1::StarknetReadRpcApiV0_7_1Server::into_rpc(starknet.clone()))?;
+    }
+    if write {
+        rpc_api.merge(versions::v0_7_1::StarknetWriteRpcApiV0_7_1Server::into_rpc(starknet.clone()))?;
+    }
+    if trace {
+        rpc_api.merge(versions::v0_7_1::StarknetTraceRpcApiV0_7_1Server::into_rpc(starknet.clone()))?;
+    }
+    if internal {
+        rpc_api.merge(versions::v0_7_1::MadaraWriteRpcApiV0_7_1Server::into_rpc(starknet.clone()))?;
+    }
+    if ws {
+        // V0.8.0 ...
+    }
 
     Ok(rpc_api)
 }

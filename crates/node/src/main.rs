@@ -46,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let node_name = run_cmd.node_name_or_provide().await.to_string();
-    let node_version = env!("DEOXYS_BUILD_VERSION");
+    let node_version = env!("MADARA_BUILD_VERSION");
 
     log::info!("🥷  {} Node", GREET_IMPL_NAME);
     log::info!("✌️  Version {}", node_version);
@@ -137,11 +137,7 @@ async fn main() -> anyhow::Result<()> {
             // Block production service. (authority)
             true => {
                 let mempool_provider = Arc::new(MempoolAddTxProvider::new(Arc::clone(&mempool)));
-                let starknet = Arc::new(Starknet::new(
-                    Arc::clone(db_service.backend()),
-                    chain_config.clone(),
-                    mempool_provider.clone(),
-                ));
+                let starknet = Arc::new(Starknet::new(Arc::clone(db_service.backend()), mempool_provider.clone()));
                 // Launch the ExEx manager for configured ExExs - if any.
                 let exex_manager = ExExLauncher::new(madara_exexs(), starknet).launch().await?;
 
@@ -166,11 +162,7 @@ async fn main() -> anyhow::Result<()> {
                     chain_config.feeder_gateway_url.clone(),
                     chain_config.chain_id.to_felt(),
                 )));
-                let starknet = Arc::new(Starknet::new(
-                    Arc::clone(db_service.backend()),
-                    chain_config.clone(),
-                    gateway_provider.clone(),
-                ));
+                let starknet = Arc::new(Starknet::new(Arc::clone(db_service.backend()), gateway_provider.clone()));
                 // Launch the ExEx manager for configured ExExs - if any.
                 let exex_manager = ExExLauncher::new(madara_exexs(), starknet).launch().await?;
 
@@ -193,7 +185,6 @@ async fn main() -> anyhow::Result<()> {
     let rpc_service = RpcService::new(
         &run_cmd.rpc_params,
         &db_service,
-        Arc::clone(&chain_config),
         prometheus_service.registry(),
         Arc::clone(&rpc_add_txs_method_provider),
     )

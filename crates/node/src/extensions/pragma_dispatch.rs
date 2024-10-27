@@ -16,7 +16,6 @@ use starknet_signers::SigningKey;
 use mc_devnet::{Call, Multicall, Selector};
 use mc_mempool::transaction_hash;
 use mc_rpc::versions::v0_7_1::{StarknetReadRpcApiV0_7_1Server, StarknetWriteRpcApiV0_7_1Server};
-use mp_convert::ToFelt;
 use mp_exex::{ExExContext, ExExEvent, ExExNotification};
 use mp_transactions::broadcasted_to_blockifier;
 
@@ -204,8 +203,8 @@ fn sign_tx(
 ) -> anyhow::Result<BroadcastedInvokeTransaction> {
     let (blockifier_tx, _) = broadcasted_to_blockifier(
         BroadcastedTransaction::Invoke(tx.clone()),
-        starknet.chain_config.chain_id.to_felt(),
-        starknet.chain_config.latest_protocol_version,
+        starknet.chain_id(),
+        starknet.starknet_version(),
     )?;
 
     let signature = PRIVATE_KEY.sign(&transaction_hash(&blockifier_tx))?;

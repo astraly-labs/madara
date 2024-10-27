@@ -9,7 +9,7 @@ use errors::{StarknetRpcApiError, StarknetRpcResult};
 use jsonrpsee::core::{async_trait, RpcResult};
 use mc_db::{db_block_id::DbBlockIdResolvable, MadaraBackend};
 use mp_block::{MadaraMaybePendingBlock, MadaraMaybePendingBlockInfo};
-use mp_chain_config::{ChainConfig, RpcVersion};
+use mp_chain_config::{ChainConfig, RpcVersion, StarknetVersion};
 use mp_convert::ToFelt;
 use mp_transactions::BroadcastedDeclareTransactionV0;
 use starknet_core::types::{
@@ -43,21 +43,20 @@ pub trait AddTransactionProvider: Send + Sync {
 #[derive(Clone)]
 pub struct Starknet {
     pub backend: Arc<MadaraBackend>,
-    pub chain_config: Arc<ChainConfig>,
     pub add_transaction_provider: Arc<dyn AddTransactionProvider>,
 }
 
 impl Starknet {
-    pub fn new(
-        backend: Arc<MadaraBackend>,
-        chain_config: Arc<ChainConfig>,
-        add_transaction_provider: Arc<dyn AddTransactionProvider>,
-    ) -> Self {
-        Self { backend, add_transaction_provider, chain_config }
+    pub fn new(backend: Arc<MadaraBackend>, add_transaction_provider: Arc<dyn AddTransactionProvider>) -> Self {
+        Self { backend, add_transaction_provider }
     }
 
     pub fn clone_backend(&self) -> Arc<MadaraBackend> {
         Arc::clone(&self.backend)
+    }
+
+    pub fn clone_chain_config(&self) -> Arc<ChainConfig> {
+        Arc::clone(self.backend.chain_config())
     }
 
     pub fn get_block_info(
@@ -85,7 +84,11 @@ impl Starknet {
     }
 
     pub fn chain_id(&self) -> Felt {
-        self.chain_config.chain_id.clone().to_felt()
+        self.backend.chain_config().chain_id.clone().to_felt()
+    }
+
+    pub fn starknet_version(&self) -> StarknetVersion {
+        StarknetVersion::LATEST
     }
 
     pub fn current_block_number(&self) -> StarknetRpcResult<u64> {

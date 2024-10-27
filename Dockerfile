@@ -11,20 +11,7 @@ WORKDIR /usr/src/madara/
 # Copy the source code into the container
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
-COPY cairo cairo
-COPY cairo_0 cairo_0
-
-
-# Installing scarb, new since devnet integration
-ENV SCARB_VERSION="2.8.2"
-RUN git clone https://github.com/asdf-vm/asdf.git ~/.asdf --branch v0.14.1
-RUN echo '. "$HOME/.asdf/asdf.sh"' >> ~/.bashrc
-RUN echo '. "$HOME/.asdf/completions/asdf.bash"' >> ~/.bashrc
-ENV PATH="/root/.asdf/shims:/root/.asdf/bin:${PATH}"
-RUN asdf plugin add scarb
-RUN asdf install scarb ${SCARB_VERSION}
-RUN asdf global scarb ${SCARB_VERSION}
-RUN scarb --version
+COPY cairo-artifacts cairo-artifacts
 
 # Install runtime dependencies
 RUN apt-get -y update && \
