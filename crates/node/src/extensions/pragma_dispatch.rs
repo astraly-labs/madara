@@ -158,7 +158,7 @@ async fn update_feed_ids_if_necessary(
     Ok(())
 }
 
-/// Create a Dispatch tx and sends it. 
+/// Create a Dispatch tx and sends it.
 /// Waits for the tx & logs info about the status.
 async fn process_dispatch_transaction(ctx: &ExExContext, block_number: u64, feed_ids: &[Felt]) -> anyhow::Result<()> {
     let invoke_result = create_and_add_dispatch_tx(&ctx.starknet, feed_ids, block_number).await?;
