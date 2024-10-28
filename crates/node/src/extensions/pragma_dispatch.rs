@@ -158,8 +158,8 @@ async fn update_feed_ids_if_necessary(
     Ok(())
 }
 
-/// Create a Dispatch tx and sends it.
-/// Logs info about the tx status.
+/// Create a Dispatch tx and sends it. 
+/// Waits for the tx & logs info about the status.
 async fn process_dispatch_transaction(ctx: &ExExContext, block_number: u64, feed_ids: &[Felt]) -> anyhow::Result<()> {
     let invoke_result = create_and_add_dispatch_tx(&ctx.starknet, feed_ids, block_number).await?;
     log::info!(
@@ -167,7 +167,8 @@ async fn process_dispatch_transaction(ctx: &ExExContext, block_number: u64, feed
         block_number,
         &invoke_result.transaction_hash
     );
-
+    wait_for_tx(&ctx.starknet, invoke_result.transaction_hash, CHECK_INTERVAL, block_number).await?;
+    log::info!("🧩 [#{}] Pragma's ExEx: transaction {:#064x} accepted!", block_number, invoke_result.transaction_hash);
     Ok(())
 }
 
@@ -180,7 +181,6 @@ async fn create_and_add_dispatch_tx(
     let dispatch_tx = create_dispatch_tx(starknet, feed_ids)?;
     log::info!("🧩 [#{}] Pragma's ExEx: Adding dispatch transaction...", block_number);
     let invoke_result = starknet.add_invoke_transaction(dispatch_tx).await?;
-    wait_for_tx(starknet, invoke_result.transaction_hash, CHECK_INTERVAL, block_number).await?;
     Ok(invoke_result)
 }
 
