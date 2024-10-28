@@ -1,25 +1,29 @@
 //! ExEx of Pragma Dispatcher
 //! Adds a new TX at the end of each block, dispatching a message through
 //! Hyperlane.
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use futures::StreamExt;
-use mp_block::MadaraPendingBlock;
-use mp_rpc::Starknet;
 use starknet_api::felt;
 use starknet_core::types::{
-    BlockId, BlockTag, BroadcastedInvokeTransaction, BroadcastedInvokeTransactionV1, BroadcastedTransaction, Felt,
-    FunctionCall, InvokeTransactionResult,
+    BlockId, BlockTag, BroadcastedInvokeTransaction, BroadcastedInvokeTransactionV1, BroadcastedTransaction,
+    ExecutionResult, Felt, FunctionCall, InvokeTransactionResult,
 };
 use starknet_signers::SigningKey;
 
 use mc_devnet::{Call, Multicall, Selector};
 use mc_mempool::transaction_hash;
 use mc_rpc::versions::v0_7_1::{StarknetReadRpcApiV0_7_1Server, StarknetWriteRpcApiV0_7_1Server};
+use mp_block::MadaraPendingBlock;
 use mp_exex::{ExExContext, ExExEvent, ExExNotification};
+use mp_rpc::Starknet;
 use mp_transactions::broadcasted_to_blockifier;
 
 const PENDING_BLOCK: BlockId = BlockId::Tag(BlockTag::Pending);
+const CHECK_INTERVAL: Duration = Duration::from_millis(500);
 
 lazy_static::lazy_static! {
     // TODO: Keystore path?
@@ -158,7 +162,12 @@ async fn update_feed_ids_if_necessary(
 /// Logs info about the tx status.
 async fn process_dispatch_transaction(ctx: &ExExContext, block_number: u64, feed_ids: &[Felt]) -> anyhow::Result<()> {
     let invoke_result = create_and_add_dispatch_tx(&ctx.starknet, feed_ids, block_number).await?;
-    log::info!("🧩 [#{}] Pragma's ExEx: Transaction sent, hash: {}", block_number, &invoke_result.transaction_hash);
+    log::info!(
+        "🧩 [#{}] Pragma's ExEx: Transaction sent, hash: {:#064x}",
+        block_number,
+        &invoke_result.transaction_hash
+    );
+
     Ok(())
 }
 
@@ -171,6 +180,7 @@ async fn create_and_add_dispatch_tx(
     let dispatch_tx = create_dispatch_tx(starknet, feed_ids)?;
     log::info!("🧩 [#{}] Pragma's ExEx: Adding dispatch transaction...", block_number);
     let invoke_result = starknet.add_invoke_transaction(dispatch_tx).await?;
+    wait_for_tx(starknet, invoke_result.transaction_hash, CHECK_INTERVAL, block_number).await?;
     Ok(invoke_result)
 }
 
@@ -214,6 +224,37 @@ fn sign_tx(
     };
     *tx_signature = vec![signature.r, signature.s];
     Ok(tx)
+}
+
+const WAIT_FOR_TX_TIMEOUT: Duration = Duration::from_secs(60);
+
+pub async fn wait_for_tx(
+    starknet: &Arc<Starknet>,
+    tx_hash: Felt,
+    check_interval: Duration,
+    block_number: u64,
+) -> anyhow::Result<()> {
+    let start = SystemTime::now();
+
+    loop {
+        if start.elapsed().unwrap() >= WAIT_FOR_TX_TIMEOUT {
+            anyhow::bail!("🧩 [#{block_number}] Pragma's ExEx: Timeout while waiting for transaction {tx_hash:#064x}");
+        }
+
+        match starknet.get_transaction_receipt(tx_hash).await {
+            Ok(tx) => match tx.receipt.execution_result() {
+                ExecutionResult::Succeeded => {
+                    return Ok(());
+                }
+                ExecutionResult::Reverted { reason } => {
+                    anyhow::bail!(format!("🧩 [#{block_number}] Pragma's ExEx: Transaction {tx_hash:#064x} has been rejected/reverted: {reason}"));
+                }
+            },
+            Err(_) => {
+                tokio::time::sleep(check_interval).await;
+            }
+        }
+    }
 }
 
 /// Retrieves the available feed ids from the Pragma Feeds Registry.
