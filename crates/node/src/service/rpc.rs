@@ -5,7 +5,6 @@ use mp_rpc::{AddTransactionProvider, Starknet};
 use tokio::task::JoinSet;
 
 use mc_db::DatabaseService;
-use mc_metrics::MetricsRegistry;
 use mc_rpc::versioned_rpc_api;
 use mp_utils::service::Service;
 
@@ -26,7 +25,6 @@ impl RpcService {
     pub fn new(
         config: &RpcParams,
         db: &DatabaseService,
-        metrics_handle: &MetricsRegistry,
         add_txs_method_provider: Arc<dyn AddTransactionProvider>,
     ) -> anyhow::Result<Self> {
         if config.rpc_disabled {
@@ -38,7 +36,7 @@ impl RpcService {
             (RpcMethods::Unsafe, _) => (true, true),
             (RpcMethods::Auto, false) => (true, true),
             (RpcMethods::Auto, true) => {
-                log::warn!(
+                tracing::warn!(
                     "Option `--rpc-external` will hide node operator endpoints. To enable them, please pass \
                      `--rpc-methods unsafe`."
                 );
@@ -47,7 +45,7 @@ impl RpcService {
         };
         let (read, write, trace, internal, ws) = (rpcs, rpcs, rpcs, node_operator, rpcs);
         let starknet = Starknet::new(Arc::clone(db.backend()), add_txs_method_provider);
-        let metrics = RpcMetrics::register(metrics_handle)?;
+        let metrics = RpcMetrics::register()?;
 
         Ok(Self {
             server_config: Some(ServerConfig {

@@ -1,5 +1,10 @@
 // TODO: Move this into its own crate.
 use anyhow::Context;
+
+use crate::block_production_metrics::BlockProductionMetrics;
+use crate::close_block::close_block;
+use crate::header::make_pending_header;
+use crate::{L1DataProvider, MempoolProvider, MempoolTransaction};
 use blockifier::blockifier::transaction_executor::{TransactionExecutor, VisitedSegmentsMapping};
 use blockifier::bouncer::{Bouncer, BouncerWeights, BuiltinCount};
 use blockifier::state::cached_state::StateMaps;
@@ -20,6 +25,7 @@ use mp_state_update::{
 };
 use mp_transactions::TransactionWithHash;
 use mp_utils::graceful_shutdown;
+use opentelemetry::KeyValue;
 use starknet_api::block::BlockNumber;
 use starknet_api::core::ContractAddress;
 use starknet_types_core::felt::Felt;
@@ -31,9 +37,7 @@ use std::mem;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::close_block::close_block;
-use crate::header::make_pending_header;
-use crate::{clone_transaction, L1DataProvider, MempoolProvider, MempoolTransaction};
+use crate::clone_transaction;
 
 #[derive(Default, Clone)]
 struct ContinueBlockStats {
@@ -199,18 +203,25 @@ pub struct BlockProductionTask<Mempool: MempoolProvider> {
     l1_data_provider: Arc<dyn L1DataProvider>,
     current_pending_tick: usize,
     exex_manager: Option<ExExManagerHandle>,
+    metrics: BlockProductionMetrics,
 }
 
 impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
     #[cfg(any(test, feature = "testing"))]
+    #[tracing::instrument(skip(self), fields(module = "BlockProductionTask"))]
     pub fn set_current_pending_tick(&mut self, n: usize) {
         self.current_pending_tick = n;
     }
 
+    #[tracing::instrument(
+        skip(backend, importer, mempool, l1_data_provider, metrics),
+        fields(module = "BlockProductionTask")
+    )]
     pub fn new(
         backend: Arc<MadaraBackend>,
         importer: Arc<BlockImporter>,
         mempool: Arc<Mempool>,
+        metrics: BlockProductionMetrics,
         l1_data_provider: Arc<dyn L1DataProvider>,
         exex_manager: Option<ExExManagerHandle>,
     ) -> Result<Self, Error> {
@@ -243,9 +254,11 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
             declared_classes: vec![],
             l1_data_provider,
             exex_manager,
+            metrics,
         })
     }
 
+    #[tracing::instrument(skip(self), fields(module = "BlockProductionTask"))]
     fn continue_block(&mut self, bouncer_cap: BouncerWeights) -> Result<(StateDiff, ContinueBlockStats), Error> {
         let mut stats = ContinueBlockStats::default();
 
@@ -288,7 +301,7 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
                 match exec_result {
                     Ok(execution_info) => {
                         // Reverted transactions appear here as Ok too.
-                        log::debug!("Successful execution of transaction {:#x}", mempool_tx.tx_hash().to_felt());
+                        tracing::debug!("Successful execution of transaction {:#x}", mempool_tx.tx_hash().to_felt());
 
                         stats.n_added_to_block += 1;
                         if execution_info.is_reverted() {
@@ -312,7 +325,7 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
                         // errors during the execution of Declare and DeployAccount also appear here as they cannot be reverted.
                         // We reject them.
                         // Note that this is a big DoS vector.
-                        log::error!(
+                        tracing::error!(
                             "Rejected transaction {:#x} for unexpected error: {err:#}",
                             mempool_tx.tx_hash().to_felt()
                         );
@@ -343,7 +356,7 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
         let (state_diff, _visited_segments, _weights) =
             finalize_execution_state(&executed_txs, &mut self.executor, &self.backend, &on_top_of)?;
 
-        log::debug!(
+        tracing::debug!(
             "Finished tick with {} new transactions, now at {} - re-adding {} txs to mempool",
             stats.n_added_to_block,
             self.block.inner.transactions.len(),
@@ -354,6 +367,7 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
     }
 
     /// Each "tick" of the block time updates the pending block but only with the appropriate fraction of the total bouncer capacity.
+    #[tracing::instrument(skip(self), fields(module = "BlockProductionTask"))]
     pub fn on_pending_time_tick(&mut self) -> Result<(), Error> {
         let current_pending_tick = self.current_pending_tick;
         let n_pending_ticks_per_block = self.backend.chain_config().n_pending_ticks_per_block();
@@ -373,7 +387,7 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
 
         let gas = reduced_cap(config_bouncer.gas);
         let frac = current_pending_tick as f64 / n_pending_ticks_per_block as f64;
-        log::debug!("begin pending tick {current_pending_tick}/{n_pending_ticks_per_block}, proportion for this tick: {frac:.2}, gas limit: {gas}/{}", config_bouncer.gas);
+        tracing::debug!("begin pending tick {current_pending_tick}/{n_pending_ticks_per_block}, proportion for this tick: {frac:.2}, gas limit: {gas}/{}", config_bouncer.gas);
 
         let bouncer_cap = BouncerWeights {
             builtin_count: BuiltinCount {
@@ -398,7 +412,7 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
         let start_time = Instant::now();
         let (state_diff, stats) = self.continue_block(bouncer_cap)?;
         if stats.n_added_to_block > 0 {
-            log::info!(
+            tracing::info!(
                 "🧮 Executed and added {} transaction(s) to the pending block at height {} - {:?}",
                 stats.n_added_to_block,
                 self.block_n(),
@@ -418,9 +432,10 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
     }
 
     /// This creates a block, continuing the current pending block state up to the full bouncer limit.
+    #[tracing::instrument(skip(self), fields(module = "BlockProductionTask"))]
     pub(crate) async fn on_block_time(&mut self) -> Result<(), Error> {
         let block_n = self.block_n();
-        log::debug!("closing block #{}", block_n);
+        tracing::debug!("closing block #{}", block_n);
 
         // Complete the block with full bouncer capacity.
         let start_time = Instant::now();
@@ -479,12 +494,23 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
             ExecutionContext::new_in_block(Arc::clone(&self.backend), &self.block.info.clone().into())?.tx_executor();
         self.current_pending_tick = 0;
 
-        log::info!("⛏️  Closed block #{} with {} transactions - {:?}", block_n, n_txs, start_time.elapsed());
+        let end_time = start_time.elapsed();
+        tracing::info!("⛏️  Closed block #{} with {} transactions - {:?}", block_n, n_txs, end_time);
         let _ = self.notify_exexs(block_to_close, block_n).context("Sending notification to ExExs");
+
+        let attributes = [
+            KeyValue::new("transactions_added", n_txs.to_string()),
+            KeyValue::new("closing_time", end_time.as_secs_f32().to_string()),
+        ];
+
+        self.metrics.block_counter.add(1, &[]);
+        self.metrics.block_gauge.record(block_n, &attributes);
+        self.metrics.transaction_counter.add(n_txs as u64, &[]);
 
         Ok(())
     }
 
+    #[tracing::instrument(skip(self), fields(module = "BlockProductionTask"))]
     pub async fn block_production_task(&mut self) -> Result<(), anyhow::Error> {
         let start = tokio::time::Instant::now();
 
@@ -497,19 +523,19 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
 
         self.backend.chain_config().precheck_block_production()?; // check chain config for invalid config
 
-        log::info!("⛏️  Starting block production at block #{}", self.block_n());
+        tracing::info!("⛏️  Starting block production at block #{}", self.block_n());
 
         loop {
             tokio::select! {
                 instant = interval_block_time.tick() => {
                     if let Err(err) = self.on_block_time().await {
-                        log::error!("Block production task has errored: {err:#}");
+                        tracing::error!("Block production task has errored: {err:#}");
                         // Clear pending block. The reason we do this is because if the error happened because the closed
                         // block is invalid or has not been saved properly, we want to avoid redoing the same error in the next
                         // block. So we drop all the transactions in the pending block just in case.
                         // If the problem happened after the block was closed and saved to the db, this will do nothing.
                         if let Err(err) = self.backend.clear_pending_block() {
-                            log::error!("Error while clearing the pending block in recovery of block production error: {err:#}");
+                            tracing::error!("Error while clearing the pending block in recovery of block production error: {err:#}");
                         }
                     }
                     // ensure the pending block tick and block time match up
@@ -526,7 +552,7 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
                     }
 
                     if let Err(err) = self.on_pending_time_tick() {
-                        log::error!("Pending block update task has errored: {err:#}");
+                        tracing::error!("Pending block update task has errored: {err:#}");
                     }
                     self.current_pending_tick += 1;
                 },

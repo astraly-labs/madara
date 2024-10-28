@@ -4,8 +4,9 @@ use anyhow::Context;
 use mc_block_import::{BlockImporter, BlockValidationContext};
 use mc_db::{DatabaseService, MadaraBackend};
 use mc_devnet::{ChainGenesisDescription, DevnetKeys};
-use mc_mempool::{block_production::BlockProductionTask, L1DataProvider, Mempool};
-use mc_metrics::MetricsRegistry;
+use mc_mempool::{
+    block_production::BlockProductionTask, block_production_metrics::BlockProductionMetrics, L1DataProvider, Mempool,
+};
 use mc_telemetry::TelemetryHandle;
 use mp_exex::ExExManagerHandle;
 use mp_utils::service::Service;
@@ -17,6 +18,7 @@ struct StartParams {
     backend: Arc<MadaraBackend>,
     block_import: Arc<BlockImporter>,
     mempool: Arc<Mempool>,
+    metrics: BlockProductionMetrics,
     l1_data_provider: Arc<dyn L1DataProvider>,
     is_devnet: bool,
     n_devnet_contracts: u64,
@@ -37,18 +39,20 @@ impl BlockProductionService {
         l1_data_provider: Arc<dyn L1DataProvider>,
         is_devnet: bool,
         exex_manager: Option<ExExManagerHandle>,
-        _metrics_handle: &MetricsRegistry,
         _telemetry: TelemetryHandle,
     ) -> anyhow::Result<Self> {
         if config.block_production_disabled {
             return Ok(Self { start: None, enabled: false });
         }
 
+        let metrics = BlockProductionMetrics::register();
+
         Ok(Self {
             start: Some(StartParams {
                 backend: Arc::clone(db_service.backend()),
                 l1_data_provider,
                 mempool,
+                metrics,
                 block_import,
                 n_devnet_contracts: config.devnet_contracts,
                 is_devnet,
@@ -62,6 +66,7 @@ impl BlockProductionService {
 #[async_trait::async_trait]
 impl Service for BlockProductionService {
     // TODO(cchudant,2024-07-30): special threading requirements for the block production task
+    #[tracing::instrument(skip(self, join_set), fields(module = "BlockProductionService"))]
     async fn start(&mut self, join_set: &mut JoinSet<anyhow::Result<()>>) -> anyhow::Result<()> {
         if !self.enabled {
             return Ok(());
@@ -70,6 +75,7 @@ impl Service for BlockProductionService {
             backend,
             l1_data_provider,
             mempool,
+            metrics,
             is_devnet,
             n_devnet_contracts,
             block_import,
@@ -82,7 +88,7 @@ impl Service for BlockProductionService {
             let keys = if backend.get_latest_block_n().context("Getting the latest block number in db")?.is_none() {
                 // deploy devnet genesis
 
-                log::info!("⛏️  Deploying devnet genesis block");
+                tracing::info!("⛏️  Deploying devnet genesis block");
 
                 let mut genesis_config =
                     ChainGenesisDescription::base_config().context("Failed to create base genesis config")?;
@@ -118,7 +124,7 @@ impl Service for BlockProductionService {
         }
 
         join_set.spawn(async move {
-            BlockProductionTask::new(backend, block_import, mempool, l1_data_provider, exex_manager)?
+            BlockProductionTask::new(backend, block_import, mempool, metrics, l1_data_provider, exex_manager)?
                 .block_production_task()
                 .await?;
             Ok(())

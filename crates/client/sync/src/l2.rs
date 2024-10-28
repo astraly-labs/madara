@@ -58,6 +58,7 @@ fn notify_exexs(exex_manager: &Option<ExExManagerHandle>, block_n: u64) -> anyho
 }
 
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(skip(backend, updates_receiver, block_import, validation), fields(module = "Sync"))]
 async fn l2_verify_and_apply_task(
     backend: Arc<MadaraBackend>,
     mut updates_receiver: mpsc::Receiver<PreValidatedBlock>,
@@ -70,13 +71,13 @@ async fn l2_verify_and_apply_task(
     while let Some(block) = channel_wait_or_graceful_shutdown(pin!(updates_receiver.recv())).await {
         let BlockImportResult { header, block_hash } = block_import.verify_apply(block, validation.clone()).await?;
 
-        log::info!(
+        tracing::info!(
             "✨ Imported #{} ({}) and updated state root ({})",
             header.block_number,
             trim_hash(&block_hash),
             trim_hash(&header.global_state_root)
         );
-        log::debug!(
+        tracing::debug!(
             "Block import #{} ({:#x}) has state root {:#x}",
             header.block_number,
             block_hash,
@@ -96,10 +97,10 @@ async fn l2_verify_and_apply_task(
         );
 
         if backup_every_n_blocks.is_some_and(|backup_every_n_blocks| header.block_number % backup_every_n_blocks == 0) {
-            log::info!("⏳ Backing up database at block {}...", header.block_number);
+            tracing::info!("⏳ Backing up database at block {}...", header.block_number);
             let sw = PerfStopwatch::new();
             backend.backup().await.context("backing up database")?;
-            log::info!("✅ Database backup is done ({:?})", sw.elapsed());
+            tracing::info!("✅ Database backup is done ({:?})", sw.elapsed());
         }
     }
 
@@ -149,7 +150,7 @@ async fn l2_pending_block_task(
     // clear pending status
     {
         backend.clear_pending_block().context("Clearing pending block")?;
-        log::debug!("l2_pending_block_task: startup: wrote no pending");
+        tracing::debug!("l2_pending_block_task: startup: wrote no pending");
     }
 
     // we start the pending block task only once the node has been fully sync
@@ -158,12 +159,12 @@ async fn l2_pending_block_task(
         return Ok(());
     }
 
-    log::debug!("Start pending block poll");
+    tracing::debug!("Start pending block poll");
 
     let mut interval = tokio::time::interval(pending_block_poll_interval);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     while wait_or_graceful_shutdown(interval.tick()).await.is_some() {
-        log::debug!("Getting pending block...");
+        tracing::debug!("Getting pending block...");
 
         let current_block_hash = backend
             .get_block_hash(&BlockId::Tag(BlockTag::Latest))
@@ -186,7 +187,7 @@ async fn l2_pending_block_task(
         };
 
         if let Err(err) = import_block().await {
-            log::debug!("Error while importing pending block: {err:#}");
+            tracing::debug!("Error while importing pending block: {err:#}");
         }
     }
 
@@ -205,6 +206,7 @@ pub struct L2SyncConfig {
 
 /// Spawns workers to fetch blocks and state updates from the feeder.
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(skip(backend, provider, config, chain_id, telemetry, block_importer), fields(module = "Sync"))]
 pub async fn sync(
     backend: &Arc<MadaraBackend>,
     provider: FeederClient,
@@ -284,7 +286,7 @@ mod tests {
     use mc_block_import::tests::block_import_utils::create_dummy_unverified_full_block;
     use mc_block_import::BlockImporter;
     use mc_db::{db_block_id::DbBlockId, MadaraBackend};
-    use mc_metrics::MetricsRegistry;
+
     use mc_telemetry::TelemetryService;
     use mp_block::header::L1DataAvailabilityMode;
     use mp_block::MadaraBlock;
@@ -316,8 +318,7 @@ mod tests {
     async fn test_l2_verify_and_apply_task(test_setup: Arc<MadaraBackend>) {
         let backend = test_setup;
         let (block_conv_sender, block_conv_receiver) = mpsc::channel(100);
-        let block_importer =
-            Arc::new(BlockImporter::new(backend.clone(), &MetricsRegistry::dummy(), None, true).unwrap());
+        let block_importer = Arc::new(BlockImporter::new(backend.clone(), None, true).unwrap());
         let validation = BlockValidationContext::new(backend.chain_config().chain_id.clone());
         let telemetry = TelemetryService::new(true, vec![]).unwrap().new_handle();
 
@@ -377,8 +378,7 @@ mod tests {
         let backend = test_setup;
         let (updates_sender, updates_receiver) = mpsc::channel(100);
         let (output_sender, mut output_receiver) = mpsc::channel(100);
-        let block_import =
-            Arc::new(BlockImporter::new(backend.clone(), &MetricsRegistry::dummy(), None, true).unwrap());
+        let block_import = Arc::new(BlockImporter::new(backend.clone(), None, true).unwrap());
         let validation = BlockValidationContext::new(backend.chain_config().chain_id.clone());
 
         let mock_block = create_dummy_unverified_full_block();
@@ -427,8 +427,7 @@ mod tests {
     async fn test_l2_pending_block_task(test_setup: Arc<MadaraBackend>) {
         let backend = test_setup;
         let ctx = TestContext::new(backend.clone());
-        let block_import =
-            Arc::new(BlockImporter::new(backend.clone(), &MetricsRegistry::dummy(), None, true).unwrap());
+        let block_import = Arc::new(BlockImporter::new(backend.clone(), None, true).unwrap());
         let validation = BlockValidationContext::new(backend.chain_config().chain_id.clone());
 
         let task_handle = tokio::spawn(l2_pending_block_task(
