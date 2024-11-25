@@ -18,14 +18,13 @@ mc-db.workspace = true
 mp-block.workspace = true
 mp-chain-config.workspace = true
 mp-convert.workspace = true
-mp-transactions.workspace = true
 mp-gateway.workspace = true
+mp-transactions.workspace = true
 
 # Other
 anyhow = { workspace = true }
 jsonrpsee = { workspace = true }
 lazy_static = { workspace = true }
-tracing = { workspace = true }
 primitive-types.workspace = true
 reqwest = { workspace = true }
 rstest = { workspace = true }
@@ -33,3 +32,4 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
