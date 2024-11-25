@@ -9,15 +9,15 @@ use std::{
 use futures::StreamExt;
 use starknet_api::felt;
 use starknet_core::types::{
-    BlockId, BlockTag, BroadcastedInvokeTransaction, BroadcastedInvokeTransactionV1, BroadcastedTransaction,
-    ExecutionResult, Felt, FunctionCall, InvokeTransactionResult,
+    BroadcastedInvokeTransaction, BroadcastedInvokeTransactionV1, BroadcastedTransaction, ExecutionResult, Felt,
+    FunctionCall, InvokeTransactionResult,
 };
 use starknet_signers::SigningKey;
 
 use mc_devnet::{Call, Multicall, Selector};
 use mc_mempool::transaction_hash;
-use mc_rpc::versions::v0_7_1::{StarknetReadRpcApiV0_7_1Server, StarknetWriteRpcApiV0_7_1Server};
-use mp_block::MadaraPendingBlock;
+use mc_rpc::versions::user::v0_7_1::{StarknetReadRpcApiV0_7_1Server, StarknetWriteRpcApiV0_7_1Server};
+use mp_block::{BlockId, BlockTag, MadaraPendingBlock};
 use mp_exex::{ExExContext, ExExEvent, ExExNotification};
 use mp_rpc::Starknet;
 use mp_transactions::broadcasted_to_blockifier;
@@ -52,7 +52,7 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
     // Feed ids that will be dispatched.
     // The first element is the length of the vec & after are the elements.
     let mut feed_ids: Vec<Felt> = get_feed_ids_from_registry(&ctx.starknet).await.unwrap_or(vec![Felt::ZERO]);
-    log::info!("🧩 Pragma's ExEx: Initialized feed IDs from Registry. Total feeds: {}", feed_ids[0]);
+    tracing::info!("🧩 Pragma's ExEx: Initialized feed IDs from Registry. Total feeds: {}", feed_ids[0]);
 
     while let Some(notification) = ctx.notifications.next().await {
         let (block, block_number) = match notification {
@@ -65,13 +65,13 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
 
         // Will update in-place the feed ids vec
         if let Err(e) = update_feed_ids_if_necessary(&ctx.starknet, &block, block_number.0, &mut feed_ids).await {
-            log::error!("🧩 [#{}] Pragma's ExEx: Error while updating feed IDs: {:?}", block_number, e);
+            tracing::error!("🧩 [#{}] Pragma's ExEx: Error while updating feed IDs: {:?}", block_number, e);
             ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
             continue;
         }
 
         if feed_ids == *EMPTY_FEEDS {
-            log::warn!("🧩 [#{}] Pragma's ExEx: No feed IDs available, skipping dispatch", block_number);
+            tracing::warn!("🧩 [#{}] Pragma's ExEx: No feed IDs available, skipping dispatch", block_number);
             ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
             continue;
         }
@@ -91,7 +91,11 @@ pub async fn exex_pragma_dispatch(mut ctx: ExExContext) -> anyhow::Result<()> {
         }
 
         if let Err(e) = process_dispatch_transaction(&ctx, block_number.0, &feed_ids).await {
-            log::error!("🧩 [#{}] Pragma's ExEx: Error while processing dispatch transaction: {:?}", block_number, e);
+            tracing::error!(
+                "🧩 [#{}] Pragma's ExEx: Error while processing dispatch transaction: {:?}",
+                block_number,
+                e
+            );
         }
 
         ctx.events.send(ExExEvent::FinishedHeight(block_number))?;
@@ -113,7 +117,7 @@ async fn update_feed_ids_if_necessary(
     // Requery.
     if *feed_ids == *EMPTY_FEEDS {
         *feed_ids = get_feed_ids_from_registry(starknet).await?;
-        log::info!("🧩 [#{}] Pragma's ExEx: Refreshed all feeds. Total feeds: {}", block_number, feed_ids[0]);
+        tracing::info!("🧩 [#{}] Pragma's ExEx: Refreshed all feeds. Total feeds: {}", block_number, feed_ids[0]);
         return Ok(());
     }
 
@@ -132,7 +136,7 @@ async fn update_feed_ids_if_necessary(
                     if !feed_ids.contains(&feed_id) {
                         feed_ids.push(feed_id);
                         feed_ids[0] += Felt::ONE;
-                        log::info!(
+                        tracing::info!(
                             "🧩 [#{}] Pragma's ExEx: Added new feed ID \"0x{:x}\". Total feeds: {}",
                             block_number,
                             feed_id,
@@ -143,7 +147,7 @@ async fn update_feed_ids_if_necessary(
                     if let Some(pos) = feed_ids.iter().position(|x| *x == feed_id) {
                         feed_ids.remove(pos);
                         feed_ids[0] -= Felt::ONE;
-                        log::info!(
+                        tracing::info!(
                             "🧩 [#{}] Pragma's ExEx: Removed feed ID \"0x{:x}\". Total feeds: {}",
                             block_number,
                             feed_id,
@@ -162,13 +166,17 @@ async fn update_feed_ids_if_necessary(
 /// Waits for the tx & logs info about the status.
 async fn process_dispatch_transaction(ctx: &ExExContext, block_number: u64, feed_ids: &[Felt]) -> anyhow::Result<()> {
     let invoke_result = create_and_add_dispatch_tx(&ctx.starknet, feed_ids, block_number).await?;
-    log::info!(
+    tracing::info!(
         "🧩 [#{}] Pragma's ExEx: Transaction sent, hash: {:#064x}",
         block_number,
         &invoke_result.transaction_hash
     );
     wait_for_tx(&ctx.starknet, invoke_result.transaction_hash, CHECK_INTERVAL, block_number).await?;
-    log::info!("🧩 [#{}] Pragma's ExEx: transaction {:#064x} accepted!", block_number, invoke_result.transaction_hash);
+    tracing::info!(
+        "🧩 [#{}] Pragma's ExEx: transaction {:#064x} accepted!",
+        block_number,
+        invoke_result.transaction_hash
+    );
     Ok(())
 }
 
@@ -179,7 +187,7 @@ async fn create_and_add_dispatch_tx(
     block_number: u64,
 ) -> anyhow::Result<InvokeTransactionResult> {
     let dispatch_tx = create_dispatch_tx(starknet, feed_ids)?;
-    log::info!("🧩 [#{}] Pragma's ExEx: Adding dispatch transaction...", block_number);
+    tracing::info!("🧩 [#{}] Pragma's ExEx: Adding dispatch transaction...", block_number);
     let invoke_result = starknet.add_invoke_transaction(dispatch_tx).await?;
     Ok(invoke_result)
 }

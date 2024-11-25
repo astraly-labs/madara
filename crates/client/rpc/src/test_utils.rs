@@ -18,8 +18,9 @@ use mp_transactions::{BroadcastedDeclareTransactionV0, InvokeTransaction, Invoke
 use rstest::fixture;
 use starknet_core::types::{
     BroadcastedDeclareTransaction, BroadcastedDeployAccountTransaction, BroadcastedInvokeTransaction,
-    DeclareTransactionResult, DeployAccountTransactionResult, Felt, InvokeTransactionResult,
+    DeclareTransactionResult, DeployAccountTransactionResult, InvokeTransactionResult,
 };
+use starknet_types_core::felt::Felt;
 use std::sync::Arc;
 
 #[cfg(test)]

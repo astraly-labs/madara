@@ -1,1 +1,2 @@
-pub mod v0_7_1;
+pub mod admin;
+pub mod user;

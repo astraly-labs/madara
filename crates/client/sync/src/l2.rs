@@ -9,13 +9,13 @@ use mc_block_import::{
 };
 use mc_db::MadaraBackend;
 use mc_db::MadaraStorageError;
-use mc_gateway::client::builder::FeederClient;
-use mc_gateway::error::SequencerError;
+use mc_gateway_client::GatewayProvider;
 use mc_telemetry::{TelemetryHandle, VerbosityLevel};
 use mp_block::BlockId;
 use mp_block::BlockTag;
 use mp_exex::ExExManagerHandle;
 use mp_exex::ExExNotification;
+use mp_gateway::error::SequencerError;
 use mp_utils::{channel_wait_or_graceful_shutdown, wait_or_graceful_shutdown, PerfStopwatch};
 use starknet_api::block::BlockNumber;
 use starknet_api::core::ChainId;
@@ -66,9 +66,12 @@ async fn l2_verify_and_apply_task(
     validation: BlockValidationContext,
     backup_every_n_blocks: Option<u64>,
     telemetry: TelemetryHandle,
+    stop_on_sync: bool,
+    cancellation_token: tokio_util::sync::CancellationToken,
     exex_manager: Option<ExExManagerHandle>,
 ) -> anyhow::Result<()> {
-    while let Some(block) = channel_wait_or_graceful_shutdown(pin!(updates_receiver.recv())).await {
+    while let Some(block) = channel_wait_or_graceful_shutdown(pin!(updates_receiver.recv()), &cancellation_token).await
+    {
         let BlockImportResult { header, block_hash } = block_import.verify_apply(block, validation.clone()).await?;
 
         tracing::info!(
@@ -104,6 +107,10 @@ async fn l2_verify_and_apply_task(
         }
     }
 
+    if stop_on_sync {
+        cancellation_token.cancel()
+    }
+
     Ok(())
 }
 
@@ -112,25 +119,26 @@ async fn l2_block_conversion_task(
     output: mpsc::Sender<PreValidatedBlock>,
     block_import: Arc<BlockImporter>,
     validation: BlockValidationContext,
+    cancellation_token: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<()> {
     // Items of this stream are futures that resolve to blocks, which becomes a regular stream of blocks
     // using futures buffered.
     let conversion_stream = stream::unfold(
-        (updates_receiver, block_import, validation.clone()),
-        |(mut updates_recv, block_import, validation)| async move {
-            channel_wait_or_graceful_shutdown(updates_recv.recv()).await.map(|block| {
+        (updates_receiver, block_import, validation.clone(), cancellation_token.clone()),
+        |(mut updates_recv, block_import, validation, cancellation_token)| async move {
+            channel_wait_or_graceful_shutdown(updates_recv.recv(), &cancellation_token).await.map(|block| {
                 let block_import_ = Arc::clone(&block_import);
                 let validation_ = validation.clone();
                 (
                     async move { block_import_.pre_validate(block, validation_).await },
-                    (updates_recv, block_import, validation),
+                    (updates_recv, block_import, validation, cancellation_token),
                 )
             })
         },
     );
 
     let mut stream = pin!(conversion_stream.buffered(10));
-    while let Some(block) = channel_wait_or_graceful_shutdown(stream.next()).await {
+    while let Some(block) = channel_wait_or_graceful_shutdown(stream.next(), &cancellation_token).await {
         if output.send(block?).await.is_err() {
             // channel closed
             break;
@@ -144,8 +152,9 @@ async fn l2_pending_block_task(
     block_import: Arc<BlockImporter>,
     validation: BlockValidationContext,
     sync_finished_cb: oneshot::Receiver<()>,
-    provider: Arc<FeederClient>,
+    provider: Arc<GatewayProvider>,
     pending_block_poll_interval: Duration,
+    cancellation_token: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<()> {
     // clear pending status
     {
@@ -163,17 +172,21 @@ async fn l2_pending_block_task(
 
     let mut interval = tokio::time::interval(pending_block_poll_interval);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    while wait_or_graceful_shutdown(interval.tick()).await.is_some() {
+    while wait_or_graceful_shutdown(interval.tick(), &cancellation_token).await.is_some() {
         tracing::debug!("Getting pending block...");
 
         let current_block_hash = backend
             .get_block_hash(&BlockId::Tag(BlockTag::Latest))
             .context("Getting latest block hash")?
             .unwrap_or(/* genesis parent block hash */ Felt::ZERO);
-        let Some(block) =
-            fetch_pending_block_and_updates(current_block_hash, &backend.chain_config().chain_id, &provider)
-                .await
-                .context("Getting pending block from FGW")?
+        let Some(block) = fetch_pending_block_and_updates(
+            current_block_hash,
+            &backend.chain_config().chain_id,
+            &provider,
+            &cancellation_token,
+        )
+        .await
+        .context("Getting pending block from FGW")?
         else {
             continue;
         };
@@ -197,6 +210,7 @@ async fn l2_pending_block_task(
 pub struct L2SyncConfig {
     pub first_block: u64,
     pub n_blocks_to_sync: Option<u64>,
+    pub stop_on_sync: bool,
     pub verify: bool,
     pub sync_polling_interval: Option<Duration>,
     pub backup_every_n_blocks: Option<u64>,
@@ -209,11 +223,12 @@ pub struct L2SyncConfig {
 #[tracing::instrument(skip(backend, provider, config, chain_id, telemetry, block_importer), fields(module = "Sync"))]
 pub async fn sync(
     backend: &Arc<MadaraBackend>,
-    provider: FeederClient,
+    provider: GatewayProvider,
     config: L2SyncConfig,
     chain_id: ChainId,
     telemetry: TelemetryHandle,
     block_importer: Arc<BlockImporter>,
+    cancellation_token: tokio_util::sync::CancellationToken,
     exex_manager: Option<ExExManagerHandle>,
 ) -> anyhow::Result<()> {
     let (fetch_stream_sender, fetch_stream_receiver) = mpsc::channel(8);
@@ -243,16 +258,19 @@ pub async fn sync(
         Arc::clone(backend),
         config.first_block,
         config.n_blocks_to_sync,
+        config.stop_on_sync,
         fetch_stream_sender,
         Arc::clone(&provider),
         config.sync_polling_interval,
         once_caught_up_cb_sender,
+        cancellation_token.clone(),
     ));
     join_set.spawn(l2_block_conversion_task(
         fetch_stream_receiver,
         block_conv_sender,
         Arc::clone(&block_importer),
         validation.clone(),
+        cancellation_token.clone(),
     ));
     join_set.spawn(l2_verify_and_apply_task(
         Arc::clone(backend),
@@ -261,6 +279,8 @@ pub async fn sync(
         validation.clone(),
         config.backup_every_n_blocks,
         telemetry,
+        config.stop_on_sync,
+        cancellation_token.clone(),
         exex_manager,
     ));
     join_set.spawn(l2_pending_block_task(
@@ -270,6 +290,7 @@ pub async fn sync(
         once_caught_up_cb_receiver,
         provider,
         config.pending_block_poll_interval,
+        cancellation_token.clone(),
     ));
 
     while let Some(res) = join_set.join_next().await {
@@ -331,6 +352,8 @@ mod tests {
             validation.clone(),
             Some(1),
             telemetry,
+            false,
+            tokio_util::sync::CancellationToken::new(),
             None,
         ));
 
@@ -385,8 +408,13 @@ mod tests {
 
         updates_sender.send(mock_block).await.unwrap();
 
-        let task_handle =
-            tokio::spawn(l2_block_conversion_task(updates_receiver, output_sender, block_import, validation));
+        let task_handle = tokio::spawn(l2_block_conversion_task(
+            updates_receiver,
+            output_sender,
+            block_import,
+            validation,
+            tokio_util::sync::CancellationToken::new(),
+        ));
 
         let result = tokio::time::timeout(std::time::Duration::from_secs(5), output_receiver.recv()).await;
         match result {
@@ -437,6 +465,7 @@ mod tests {
             ctx.once_caught_up_receiver,
             ctx.provider.clone(),
             std::time::Duration::from_secs(5),
+            tokio_util::sync::CancellationToken::new(),
         ));
 
         // Simulate the "once_caught_up" signal

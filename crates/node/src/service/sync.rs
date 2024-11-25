@@ -35,7 +35,7 @@ impl SyncService {
     ) -> anyhow::Result<Self> {
         let fetch_config = config.block_fetch_config(chain_config.chain_id.clone(), chain_config.clone());
 
-        tracing::info!("🛰️ Using feeder gateway URL: {}", fetch_config.feeder_gateway.as_str());
+        tracing::info!("🛰️  Using feeder gateway URL: {}", fetch_config.feeder_gateway.as_str());
 
         Ok(Self {
             db_backend: Arc::clone(db.backend()),
@@ -53,7 +53,11 @@ impl SyncService {
 
 #[async_trait::async_trait]
 impl Service for SyncService {
-    async fn start(&mut self, join_set: &mut JoinSet<anyhow::Result<()>>) -> anyhow::Result<()> {
+    async fn start(
+        &mut self,
+        join_set: &mut JoinSet<anyhow::Result<()>>,
+        cancellation_token: tokio_util::sync::CancellationToken,
+    ) -> anyhow::Result<()> {
         if self.disabled {
             return Ok(());
         }
@@ -79,6 +83,7 @@ impl Service for SyncService {
                 backup_every_n_blocks,
                 telemetry,
                 pending_block_poll_interval,
+                cancellation_token,
                 exex_manager,
             )
             .await

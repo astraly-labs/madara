@@ -511,7 +511,10 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
     }
 
     #[tracing::instrument(skip(self), fields(module = "BlockProductionTask"))]
-    pub async fn block_production_task(&mut self) -> Result<(), anyhow::Error> {
+    pub async fn block_production_task(
+        &mut self,
+        cancellation_token: tokio_util::sync::CancellationToken,
+    ) -> Result<(), anyhow::Error> {
         let start = tokio::time::Instant::now();
 
         let mut interval_block_time = tokio::time::interval_at(start, self.backend.chain_config().block_time);
@@ -556,7 +559,7 @@ impl<Mempool: MempoolProvider> BlockProductionTask<Mempool> {
                     }
                     self.current_pending_tick += 1;
                 },
-                _ = graceful_shutdown() => break,
+                _ = graceful_shutdown(&cancellation_token) => break,
             }
         }
 
@@ -596,7 +599,7 @@ mod test {
         core::{ClassHash, ContractAddress, PatriciaKey},
         felt, patricia_key,
     };
-    use starknet_core::types::Felt;
+    use starknet_types_core::felt::Felt;
 
     #[test]
     fn state_map_to_state_diff() {

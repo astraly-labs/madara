@@ -15,31 +15,22 @@ use jsonrpsee::RpcModule;
 use mp_rpc::Starknet;
 
 /// Returns the RpcModule merged with all the supported RPC versions.
-pub fn versioned_rpc_api(
-    starknet: &Starknet,
-    read: bool,
-    write: bool,
-    trace: bool,
-    internal: bool,
-    ws: bool,
-) -> anyhow::Result<RpcModule<()>> {
+pub fn rpc_api_user(starknet: &Starknet) -> anyhow::Result<RpcModule<()>> {
     let mut rpc_api = RpcModule::new(());
 
-    if read {
-        rpc_api.merge(versions::v0_7_1::StarknetReadRpcApiV0_7_1Server::into_rpc(starknet.clone()))?;
-    }
-    if write {
-        rpc_api.merge(versions::v0_7_1::StarknetWriteRpcApiV0_7_1Server::into_rpc(starknet.clone()))?;
-    }
-    if trace {
-        rpc_api.merge(versions::v0_7_1::StarknetTraceRpcApiV0_7_1Server::into_rpc(starknet.clone()))?;
-    }
-    if internal {
-        rpc_api.merge(versions::v0_7_1::MadaraWriteRpcApiV0_7_1Server::into_rpc(starknet.clone()))?;
-    }
-    if ws {
-        // V0.8.0 ...
-    }
+    rpc_api.merge(versions::user::v0_7_1::StarknetReadRpcApiV0_7_1Server::into_rpc(starknet.clone()))?;
+    rpc_api.merge(versions::user::v0_8_0::StarknetReadRpcApiV0_8_0Server::into_rpc(starknet.clone()))?;
+    rpc_api.merge(versions::user::v0_7_1::StarknetWriteRpcApiV0_7_1Server::into_rpc(starknet.clone()))?;
+    rpc_api.merge(versions::user::v0_7_1::StarknetTraceRpcApiV0_7_1Server::into_rpc(starknet.clone()))?;
+    rpc_api.merge(versions::user::v0_8_0::StarknetWsRpcApiV0_8_0Server::into_rpc(starknet.clone()))?;
+
+    Ok(rpc_api)
+}
+
+pub fn rpc_api_admin(starknet: &Starknet) -> anyhow::Result<RpcModule<()>> {
+    let mut rpc_api = RpcModule::new(());
+
+    rpc_api.merge(versions::admin::v0_1_0::MadaraWriteRpcApiV0_1_0Server::into_rpc(starknet.clone()))?;
 
     Ok(rpc_api)
 }
